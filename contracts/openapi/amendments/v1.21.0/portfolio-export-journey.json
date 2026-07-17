@@ -1,0 +1,72 @@
+{
+  "amendmentVersion": "1.21.0",
+  "baseContractVersion": "1.20.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "portfolio-exports.request.v2": {
+      "method": "POST",
+      "path": "/v1/portfolio-exports",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.portfolio-export.v2+json",
+      "requestSchema": "PortfolioExportRequestV2",
+      "responseContentType": "application/vnd.lites.portfolio-export.v2+json",
+      "responseSchema": "PortfolioExportResourceV2",
+      "status": 202,
+      "concurrency": "If-Match must equal expected_project_version. Project completion, Workspace binding version and head revision must match exactly.",
+      "safety": "The caller selects only Artifact revision IDs and format. The service expands trusted object versions, scan receipts and exact Evidence bindings, pins the ArtifactBuilder deployment, and commits Conversation input, Run, export manifest and idempotency response atomically."
+    },
+    "portfolio-exports.get.v2": {
+      "method": "GET",
+      "path": "/v1/portfolio-exports/{export_id}",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "responseContentType": "application/vnd.lites.portfolio-export.v2+json",
+      "responseSchema": "PortfolioExportResourceV2",
+      "cachePolicy": "private_no_store"
+    }
+  },
+  "schemas": {
+    "PortfolioExportRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "project_id", "expected_project_version", "expected_workspace_binding_version", "workspace_revision", "artifact_revision_ids", "format"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "project_id": {"type": "string", "format": "uuid"},
+        "expected_project_version": {"type": "integer", "minimum": 1},
+        "expected_workspace_binding_version": {"type": "integer", "minimum": 1},
+        "workspace_revision": {"type": "string", "minLength": 1, "maxLength": 500},
+        "artifact_revision_ids": {"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "format": "uuid"}},
+        "format": {"enum": ["html", "pdf", "zip"]}
+      },
+      "description": "Closed selection request. content_ref, content_hash, object_version, scan_status, scan_result_hash, Evidence versions and completion verdict are forbidden."
+    },
+    "PortfolioExportResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "project_id", "run_id", "status", "version", "format", "revision_manifest_hash", "content_hash", "media_type", "byte_size", "created_at", "started_at", "completed_at", "expires_at", "failure_code", "replayed"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "project_id": {"type": "string", "format": "uuid"},
+        "run_id": {"type": "string", "format": "uuid"},
+        "status": {"enum": ["requested", "building", "ready", "failed", "expired"]},
+        "version": {"type": "integer", "minimum": 1},
+        "format": {"enum": ["html", "pdf", "zip"]},
+        "revision_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "content_hash": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "media_type": {"type": ["string", "null"]},
+        "byte_size": {"type": ["integer", "null"], "minimum": 1, "maximum": 1073741824},
+        "created_at": {"type": "string", "format": "date-time"},
+        "started_at": {"type": ["string", "null"], "format": "date-time"},
+        "completed_at": {"type": ["string", "null"], "format": "date-time"},
+        "expires_at": {"type": ["string", "null"], "format": "date-time"},
+        "failure_code": {"type": ["string", "null"]},
+        "replayed": {"type": "boolean"}
+      }
+    }
+  }
+}

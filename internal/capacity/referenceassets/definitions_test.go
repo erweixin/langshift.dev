@@ -15,7 +15,7 @@ func TestBuildProducesAllFiveRuntimeLoadableProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(definitions.Prompts) != 5 || len(definitions.Routes) != 5 || len(definitions.Tools) != 1 || len(definitions.Providers.Providers) != 1 {
+	if len(definitions.Prompts) != 5 || len(definitions.Routes) != 5 || len(definitions.Tools) != 2 || len(definitions.Providers.Providers) != 1 {
 		t.Fatalf("definitions=%#v", definitions)
 	}
 	path := filepath.Join(t.TempDir(), "definitions.json")
@@ -39,6 +39,7 @@ func TestBuildRejectsPrivateAliasAndMutableImage(t *testing.T) {
 		func(config *Config) { config.ProviderHost = "provider.internal" },
 		func(config *Config) { config.ProviderHost = "127.0.0.1" },
 		func(config *Config) { config.RuntimeImage = "ghcr.io/langshift/reference:latest" },
+		func(config *Config) { config.ToolWorkerImage = "ghcr.io/langshift/tool-worker:latest" },
 	} {
 		configuration := testConfig()
 		mutation(&configuration)
@@ -49,5 +50,5 @@ func TestBuildRejectsPrivateAliasAndMutableImage(t *testing.T) {
 }
 
 func testConfig() Config {
-	return Config{ProviderHost: "reference-provider.example.com", CredentialSecretRef: "lites/providers/reference", CredentialSecretVersion: "1", RuntimeImage: "ghcr.io/langshift/reference-tool-runtime@sha256:" + strings.Repeat("a", 64)}
+	return Config{ProviderHost: "reference-provider.example.com", CredentialSecretRef: "lites/providers/reference", CredentialSecretVersion: "1", RuntimeImage: "ghcr.io/langshift/reference-tool-runtime@sha256:" + strings.Repeat("a", 64), ToolWorkerImage: "ghcr.io/langshift/lites-tool-worker@sha256:" + strings.Repeat("b", 64)}
 }

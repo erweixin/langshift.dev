@@ -11,7 +11,7 @@ func TestToolReconciliationWorkerConfigurationFailsClosedAndAcceptsDevelopmentFi
 		"ALLOW_INSECURE_DEVELOPMENT", "DATABASE_URL", "DATABASE_URL_FILE", "STORE_EPOCH_URL",
 		"NATS_URLS", "TOOL_REGISTRY_ARTIFACT_FILE", "TOOL_REGISTRY_ARTIFACT_HASH",
 		"TOOL_RECONCILIATION_ADAPTERS_FILE", "TOOL_RECONCILIATION_WORKER_ID", "EXECUTION_ID_KEY_FILE",
-		"EXECUTION_LEASE_PEPPER_FILE", "S3_REGION", "S3_PAYLOAD_BUCKET", "VAULT_ADDR",
+		"EXECUTION_LEASE_PEPPER_FILE", "S3_REGION", "S3_PAYLOAD_BUCKET", "S3_ARTIFACT_BUCKET", "VAULT_ADDR",
 		"HEALTH_ADDRESS", "LITES_ENVIRONMENT", "LITES_VERSION", "LITES_REGION", "OTLP_GRPC_ENDPOINT",
 	} {
 		t.Setenv(name, "")
@@ -32,6 +32,7 @@ func TestToolReconciliationWorkerConfigurationFailsClosedAndAcceptsDevelopmentFi
 		"EXECUTION_LEASE_PEPPER_FILE":       "/tmp/lease-pepper",
 		"S3_REGION":                         "us-east-1",
 		"S3_PAYLOAD_BUCKET":                 "payloads",
+		"S3_ARTIFACT_BUCKET":                "artifacts",
 		"VAULT_ADDR":                        "http://127.0.0.1:8200",
 		"HEALTH_ADDRESS":                    "127.0.0.1:8091",
 		"LITES_ENVIRONMENT":                 "test",

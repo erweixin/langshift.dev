@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root=resolve(import.meta.dirname,"..");
@@ -46,6 +46,10 @@ const v113Registry=await load("contracts/events/amendments/v1.13.0/registry.json
 const v113Fixtures=await load("contracts/events/amendments/v1.13.0/upcaster-fixtures.json");
 const v114Registry=await load("contracts/events/amendments/v1.14.0/registry.json");
 const v114Fixtures=await load("contracts/events/amendments/v1.14.0/upcaster-fixtures.json");
+const v115Registry=await load("contracts/events/amendments/v1.15.0/registry.json");
+const v115Fixtures=await load("contracts/events/amendments/v1.15.0/upcaster-fixtures.json");
+const v116Registry=await load("contracts/events/amendments/v1.16.0/registry.json");
+const v116Fixtures=await load("contracts/events/amendments/v1.16.0/upcaster-fixtures.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
@@ -310,6 +314,90 @@ const v114Amendment={
 };
 check("AMENDMENT-V1.14-CONTENT-ROOT",v114Amendment.baseAmendmentId===v113Amendment.amendmentId&&v114Amendment.baseAmendmentContentRootSha256===v113Amendment.contentRootSha256&&v114Amendment.contentRootSha256===v114RootHash,"v1.14 content root is anchored to the exact v1.13 execution amendment");
 
+const v115ExpectedEvents=[
+  "ApprovalPreviewGroupAuthorized","CoachContextSnapshotted","DailyTaskCompleted","DailyTaskUpdated","DirectApprovalGroupAuthorized",
+  "PreferencesInitialized","PreferencesUpdated","ReminderDeliveryFailed","ReminderDeliveryScheduled","ReminderOccurrenceScheduled",
+  "ReminderScheduleCancelled","ReminderScheduleCreated","ReminderSchedulePaused","ReminderScheduleReplaced","ReminderScheduleResumed",
+  "RouteRevisionFailed","RouteRevisionProposed","RouteRevisionStale","RunMessageFinalized","RunWaitingApproval","RunWaitingTool",
+  "SubmissionCreated","SubmissionReviewCompleted"
+];
+const v115EventNames=Object.keys(v115Registry.schemas);
+const priorV115Types=new Set([
+  ...Object.entries(baseRegistry.schemas).map(([name,schema])=>schema["x-event-type"]||name.replace(/V[0-9]+$/, "")),
+  ...[registry,v12Registry,v13Registry,v14Registry,v15Registry,v16Registry,v18Registry,v19Registry,v111Registry,v112Registry,v113Registry,v114Registry]
+    .flatMap(value=>Object.entries(value.schemas).map(([name,schema])=>schema["x-event-type"]||name.replace(/V[0-9]+$/, "")))
+]);
+const objectSchemasClosed=schema=>{
+  if(!schema||typeof schema!=="object") return true;
+  if(schema.type==="object"&&schema.additionalProperties!==false) return false;
+  return Object.values(schema).every(objectSchemasClosed);
+};
+check("AMENDMENT-V1.15-VERSION",v115Registry.amendmentVersion==="1.15.0"&&v115Registry.baseContractVersion===v114Registry.amendmentVersion&&v115Registry.compatibility==="additive","v1.15 additively extends the v1.14 conversation contract chain");
+check("AMENDMENT-V1.15-EVENTS",JSON.stringify(v115EventNames)===JSON.stringify(v115ExpectedEvents)&&v115EventNames.every(name=>!priorV115Types.has(v115Registry.schemas[name]["x-event-type"])),"v1.15 registers every previously unregistered execution, Coach and product lifecycle fact without replacing a frozen event");
+check("AMENDMENT-V1.15-SCHEMAS",Object.values(v115Registry.schemas).every(schema=>schema.additionalProperties===false&&schema["x-event-schema-version"]===1&&schema["x-event-type"]===schema.title.replace(/ v1$/,"")&&schema.properties.payload.additionalProperties===false&&schema.properties.payload.required.every(field=>field in schema.properties.payload.properties)&&objectSchemasClosed(schema)),"v1.15 envelopes, payloads and nested records are closed and versioned");
+const coachContextPayload=v115Registry.schemas.CoachContextSnapshotted.properties.payload;
+check("COACH-CONTEXT-BINDING",["coach_context_id","conversation_id","mission_id","focus_version","manifest_hash","payload_hash"].every(field=>coachContextPayload.required.includes(field))&&coachContextPayload.properties.manifest_hash.pattern==="^[0-9a-f]{64}$"&&coachContextPayload.properties.payload_hash.pattern==="^[0-9a-f]{64}$","Coach context snapshots bind the focused Mission version fence and exact content-addressed context artifacts");
+check("PRODUCT-LIFECYCLE-BINDING",["RouteRevisionProposed","RouteRevisionStale","RouteRevisionFailed","DailyTaskUpdated","DailyTaskCompleted","SubmissionCreated","SubmissionReviewCompleted","PreferencesInitialized","PreferencesUpdated","ReminderScheduleCreated","ReminderScheduleReplaced","ReminderSchedulePaused","ReminderScheduleResumed","ReminderScheduleCancelled","ReminderOccurrenceScheduled","ReminderDeliveryScheduled","ReminderDeliveryFailed"].every(name=>v115Registry.schemas[name].properties.payload.required.length>=3),"route, task, submission, preferences and reminder lifecycle facts carry versioned reconstruction evidence");
+check("EXECUTION-LIFECYCLE-BINDING",["ApprovalPreviewGroupAuthorized","DirectApprovalGroupAuthorized","RunMessageFinalized","RunWaitingApproval","RunWaitingTool"].every(name=>v115Registry.schemas[name].properties.payload.required.length>=3),"approval and Run transition facts carry their authorization, message or continuation binding");
+check("AMENDMENT-V1.15-FIXTURES",v115Fixtures.baseFixtureVersion===v114Fixtures.fixtureVersion&&v115Fixtures.fixtureVersion===v115Registry.amendmentVersion&&v115Fixtures.fixtures.length===v115EventNames.length&&v115Fixtures.fixtures.every(fixture=>fixture.fromVersion===1&&fixture.toVersion===1&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)&&v115EventNames.includes(fixture.eventType)),"each v1.15 event has a deterministic canonical fixture");
+
+const v116ExpectedEvents=["ProjectWorkspaceHeadAdvanced","ProjectCompleted"];
+const v116EventNames=Object.keys(v116Registry.schemas);
+check("AMENDMENT-V1.16-VERSION",v116Registry.amendmentVersion==="1.16.0"&&v116Registry.baseContractVersion===v115Registry.amendmentVersion&&v116Registry.compatibility==="additive","v1.16 additively extends the complete v1.15 lifecycle contract chain");
+check("AMENDMENT-V1.16-EVENTS",JSON.stringify(v116EventNames)===JSON.stringify(v116ExpectedEvents)&&v116EventNames.every(name=>!priorV115Types.has(name)&&!v115EventNames.includes(name)),"v1.16 registers the complete Create aggregate event surface without replacing frozen events");
+check("AMENDMENT-V1.16-SCHEMAS",Object.values(v116Registry.schemas).every(schema=>schema.additionalProperties===false&&schema["x-event-schema-version"]===1&&schema.properties.payload.additionalProperties===false&&schema.properties.payload.required.every(field=>field in schema.properties.payload.properties)&&objectSchemasClosed(schema)),"Create event envelopes and payload records are closed and versioned");
+const projectCompletedPayload=v116Registry.schemas.ProjectCompleted.properties.payload;
+check("PROJECT-COMPLETION-BINDING",["project_id","subject_version","workspace_revision","completion_manifest_hash","reflection_hash","completed_at"].every(field=>projectCompletedPayload.required.includes(field))&&projectCompletedPayload.properties.completion_manifest_hash.pattern==="^[0-9a-f]{64}$","Project completion binds its exact aggregate version, workspace revision, completion manifest and reflection");
+check("PROJECT-CHILD-CAS-BINDING",["MilestoneCreated","MilestoneStatusChanged","ProjectWorkspaceBound","ProjectTestRunRecorded"].every(name=>baseRegistry.schemas[name].properties.payload.required.includes("subject_version"))&&v116Registry.schemas.ProjectWorkspaceHeadAdvanced.properties.payload.required.includes("subject_version"),"every child mutation binds the advanced parent Project version used by If-Match");
+check("AMENDMENT-V1.16-FIXTURES",v116Fixtures.baseFixtureVersion===v115Fixtures.fixtureVersion&&v116Fixtures.fixtureVersion===v116Registry.amendmentVersion&&v116Fixtures.fixtures.length===v116EventNames.length&&v116Fixtures.fixtures.every(fixture=>fixture.fromVersion===1&&fixture.toVersion===1&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)&&v116EventNames.includes(fixture.eventType)),"each Create event has a deterministic canonical fixture");
+
+const goSources=[];
+const collectGo=async directory=>{
+  for(const entry of await readdir(resolve(root,directory),{withFileTypes:true})){
+    const relative=`${directory}/${entry.name}`;
+    if(entry.isDirectory()) await collectGo(relative);
+    else if(entry.isFile()&&entry.name.endsWith(".go")) goSources.push(await readFile(resolve(root,relative),"utf8"));
+  }
+};
+await collectGo("internal/execution");
+await collectGo("internal/product");
+const emittedTypes=new Set();
+for(const source of goSources){
+  for(const match of source.matchAll(/EventType:\s*"([A-Z][A-Za-z0-9]+)"/g)) emittedTypes.add(match[1]);
+  for(const match of source.matchAll(/eventType\s*:?=\s*"([A-Z][A-Za-z0-9]+)"/g)) emittedTypes.add(match[1]);
+  for(const match of source.matchAll(/eventTypes\s*:=\s*map\[string\]string\{([^\n]+)\}/g)) for(const value of match[1].matchAll(/"([A-Z][A-Za-z0-9]+)"/g)) emittedTypes.add(value[1]);
+}
+for(const name of ["SubmissionReviewCompleted","DailyTaskCompleted","ReminderDelivered","ReminderDeliveryFailed"]) emittedTypes.add(name);
+const registeredTypes=new Set([...priorV115Types,...Object.values(v115Registry.schemas).map(schema=>schema["x-event-type"]),...Object.values(v116Registry.schemas).map(schema=>schema["x-event-type"])]);
+const unregisteredEmitted=[...emittedTypes].filter(name=>!registeredTypes.has(name)).sort();
+check("IMPLEMENTATION-EVENT-COVERAGE",unregisteredEmitted.length===0,unregisteredEmitted.length?`unregistered emitted event types: ${unregisteredEmitted.join(", ")}`:`all ${emittedTypes.size} statically discoverable execution and product event types are registered`);
+
+const v115Files=[];
+for(const path of ["contracts/events/amendments/v1.15.0/registry.json","contracts/events/amendments/v1.15.0/upcaster-fixtures.json"]) v115Files.push({path,sha256:sha256(await read(path))});
+const v115RootHash=sha256({baseAmendmentId:v114Amendment.amendmentId,files:v115Files});
+const v115Amendment={
+  amendmentVersion:"1.15.0",amendmentId:`contract-amendment-${v115RootHash.slice(0,20)}`,status:"draft",generatedAt:"2026-07-16T00:00:00.000Z",
+  baseSnapshotId:snapshot.snapshotId,baseContentRootSha256:snapshot.contentRootSha256,
+  baseAmendmentId:v114Amendment.amendmentId,baseAmendmentContentRootSha256:v114Amendment.contentRootSha256,
+  contentRootSha256:v115RootHash,files:v115Files,
+  reason:"Register the complete production event surface emitted by Coach context admission, Route, Today, Submission, Preferences, Reminder and approval/Run transition flows.",
+  activationRule:"Backend, security, SRE and QA approval must bind this root after schema closure, fixture purity, implementation coverage, exact replay, RLS and PostgreSQL integration gates pass."
+};
+check("AMENDMENT-V1.15-CONTENT-ROOT",v115Amendment.baseAmendmentId===v114Amendment.amendmentId&&v115Amendment.baseAmendmentContentRootSha256===v114Amendment.contentRootSha256&&v115Amendment.contentRootSha256===v115RootHash,"v1.15 content root is anchored to the exact v1.14 conversation amendment");
+
+const v116Files=[];
+for(const path of ["contracts/events/amendments/v1.16.0/registry.json","contracts/events/amendments/v1.16.0/upcaster-fixtures.json"]) v116Files.push({path,sha256:sha256(await read(path))});
+const v116RootHash=sha256({baseAmendmentId:v115Amendment.amendmentId,files:v116Files});
+const v116Amendment={
+  amendmentVersion:"1.16.0",amendmentId:`contract-amendment-${v116RootHash.slice(0,20)}`,status:"draft",generatedAt:"2026-07-16T00:00:00.000Z",
+  baseSnapshotId:snapshot.snapshotId,baseContentRootSha256:snapshot.contentRootSha256,
+  baseAmendmentId:v115Amendment.amendmentId,baseAmendmentContentRootSha256:v115Amendment.contentRootSha256,
+  contentRootSha256:v116RootHash,files:v116Files,
+  reason:"Register the version-fenced Project, Milestone, Workspace, validation and completion facts required by the production Create journey.",
+  activationRule:"Backend, security, SRE and QA approval must bind this root after parent CAS, milestone verification, exact workspace, completion manifest, RLS and PostgreSQL integration gates pass."
+};
+check("AMENDMENT-V1.16-CONTENT-ROOT",v116Amendment.baseAmendmentId===v115Amendment.amendmentId&&v116Amendment.baseAmendmentContentRootSha256===v115Amendment.contentRootSha256&&v116Amendment.contentRootSha256===v116RootHash,"v1.16 content root is anchored to the exact v1.15 lifecycle amendment");
+
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
 const report={...reportBase,reportHash:sha256(reportBase)};
@@ -317,6 +405,8 @@ await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.11.json
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.12.json"),`${JSON.stringify(v112Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.13.json"),`${JSON.stringify(v113Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.14.json"),`${JSON.stringify(v114Amendment,null,2)}\n`);
+await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.15.json"),`${JSON.stringify(v115Amendment,null,2)}\n`);
+await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.16.json"),`${JSON.stringify(v116Amendment,null,2)}\n`);
 await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-lint.json"),`${JSON.stringify(report,null,2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} Stage 3 amendment checks passed; report ${report.reportHash}`);
 if(failures.length) process.exitCode=1;

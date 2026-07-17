@@ -10,8 +10,8 @@ if (!/^[0-9a-f]{40}$/.test(sourceCommit)) {
 const root = path.resolve("gate-reports/stage-2");
 const supplyRoot = path.join(root, "supply-chain");
 const imageRoot = path.join(root, "images");
-const services = ["api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "store-epoch-authority", "lites-migrate", "runtime-host-agent", "runtime-sweeper", "run-cancellation-reconciler", "reference-capacity-controller", "reference-provider", "reference-tool-runtime"];
-const applicationSBOMs = [...services, "lites-release-assets", "lites-reference-release"];
+const services = ["web-app", "api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "product-service", "product-worker", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "store-epoch-authority", "lites-migrate", "runtime-host-agent", "runtime-sweeper", "run-cancellation-reconciler", "reference-capacity-controller", "reference-provider", "reference-tool-runtime"];
+const goApplicationSBOMs = [...services.filter((service) => service !== "web-app"), "lites-release-assets", "lites-reference-release"];
 
 const sha256 = (contents) => createHash("sha256").update(contents).digest("hex");
 const readJSON = async (file) => JSON.parse(await readFile(file, "utf8"));
@@ -62,6 +62,7 @@ function countTrivyFindings(report) {
 const workflowText = await readFile(".github/workflows/supply-chain.yml", "utf8");
 const dockerfileText = await readFile("Dockerfile", "utf8");
 const runtimeDockerfileText = await readFile("Dockerfile.reference-tool-runtime", "utf8");
+const webDockerfileText = await readFile("Dockerfile.web", "utf8");
 const version = (name) => {
   const match = workflowText.match(new RegExp(`^  ${name}: "([^"]+)"$`, "m"));
   if (!match) throw new Error(`missing pinned ${name}`);
@@ -74,6 +75,11 @@ const digest = (pattern, name) => {
 };
 const runtimeDigest = (pattern, name) => {
   const match = runtimeDockerfileText.match(pattern);
+  if (!match) throw new Error(`missing pinned ${name} digest`);
+  return match[1];
+};
+const webDigest = (pattern, name) => {
+  const match = webDockerfileText.match(pattern);
   if (!match) throw new Error(`missing pinned ${name} digest`);
   return match[1];
 };
@@ -95,12 +101,16 @@ const filesystemTrivy = await readJSON(filesystemTrivyFile);
 if (countTrivyFindings(filesystemTrivy) !== 0) throw new Error("filesystem security findings remain");
 
 const sboms = [];
-for (const name of ["module", ...applicationSBOMs]) {
+for (const name of ["module", ...goApplicationSBOMs]) {
   const file = path.join(supplyRoot, `${name}.cdx.json`);
   const bom = await readJSON(file);
   if (bom.bomFormat !== "CycloneDX" || bom.specVersion !== "1.6") throw new Error(`invalid CycloneDX SBOM: ${name}`);
   sboms.push({ name, ...(await artifact(file)) });
 }
+const webSBOMFile = path.join(supplyRoot, "web-app.cdx.json");
+const webSBOM = await readJSON(webSBOMFile);
+if (webSBOM.bomFormat !== "CycloneDX" || webSBOM.specVersion !== "1.5") throw new Error("invalid CycloneDX SBOM: web-app");
+sboms.push({ name: "web-app", ...(await artifact(webSBOMFile)) });
 
 const images = [];
 for (const service of services) {
@@ -142,6 +152,9 @@ const report = {
     go_builder_index_digest: digest(/^FROM golang:[^@]+@(sha256:[0-9a-f]{64}) AS build$/m, "Go builder"),
     reference_runtime_dockerfile_frontend_digest: runtimeDigest(/^# syntax=.*@(sha256:[0-9a-f]{64})$/m, "reference Runtime Dockerfile frontend"),
     reference_runtime_go_builder_index_digest: runtimeDigest(/^FROM golang:[^@]+@(sha256:[0-9a-f]{64}) AS build$/m, "reference Runtime Go builder"),
+    web_dockerfile_frontend_digest: webDigest(/^# syntax=.*@(sha256:[0-9a-f]{64})$/m, "web Dockerfile frontend"),
+    web_node_builder_index_digest: webDigest(/^FROM node:[^@]+@(sha256:[0-9a-f]{64}) AS dependencies$/m, "web Node builder"),
+    web_distroless_runtime_index_digest: webDigest(/^FROM gcr\.io\/distroless\/nodejs24-debian13:[^@]+@(sha256:[0-9a-f]{64}) AS runtime$/m, "web distroless runtime"),
   },
   action_references: { immutable_sha_policy: "passed", actionlint: "passed" },
   dependency_security: {

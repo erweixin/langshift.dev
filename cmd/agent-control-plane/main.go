@@ -123,7 +123,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		Pool: pool, Store: store, Payloads: payloads, IDKey: secrets.IDKey,
 		IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper,
 		IdempotencyTTL: configuration.idempotencyTTL, RunTimeout: configuration.runTimeout,
-		RunMaxSteps: configuration.runMaxSteps, RunMaxCostMicrounits: configuration.runMaxCostMicrounits, RunMaxAttempts: configuration.runMaxAttempts, Now: now,
+		RunMaxSteps: configuration.runMaxSteps, RunMaxCostMicrounits: configuration.runMaxCostMicrounits, RunMaxAttempts: configuration.runMaxAttempts, BehaviorEnvironment: configuration.behaviorEnvironment, MaximumCoachContextBytes: configuration.maximumCoachContextBytes, Now: now,
 	}
 	approvalService := executionpostgres.ApprovalControlService{Pool: pool, Store: store, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: configuration.idempotencyTTL, Now: now}
 	repairService := executionpostgres.RepairControlService{Pool: pool, Store: store, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: configuration.idempotencyTTL, Now: now}

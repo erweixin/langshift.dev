@@ -25,19 +25,21 @@ func TestContextSourceStoreLoadsOnlyFencedImmutableTenantSources(t *testing.T) {
 	agent := contextPool(t, ctx, "LITES_TEST_AGENT_DATABASE_URL")
 	defer agent.Close()
 	const (
-		userID        = "a7000000-0000-4000-8000-000000000001"
-		tenantID      = "a7000000-0000-4000-8000-000000000002"
-		runID         = "a7000000-0000-4000-8000-000000000003"
-		conversation  = "a7000000-0000-4000-8000-000000000004"
-		commandID     = "a7000000-0000-4000-8000-000000000005"
-		outboxID      = "a7000000-0000-4000-8000-000000000006"
-		jobID         = "a7000000-0000-4000-8000-000000000007"
-		attemptID     = "a7000000-0000-4000-8000-000000000008"
-		epoch         = "a7000000-0000-4000-8000-000000000009"
-		behaviorID    = "a7000000-0000-4000-8000-000000000010"
-		behaviorEvent = "a7000000-0000-4000-8000-000000000011"
-		messageID     = "a7000000-0000-4000-8000-000000000012"
-		messageEvent  = "a7000000-0000-4000-8000-000000000013"
+		userID        = "b7000000-0000-4000-8000-000000000001"
+		tenantID      = "b7000000-0000-4000-8000-000000000002"
+		runID         = "b7000000-0000-4000-8000-000000000003"
+		conversation  = "b7000000-0000-4000-8000-000000000004"
+		commandID     = "b7000000-0000-4000-8000-000000000005"
+		outboxID      = "b7000000-0000-4000-8000-000000000006"
+		jobID         = "b7000000-0000-4000-8000-000000000007"
+		attemptID     = "b7000000-0000-4000-8000-000000000008"
+		epoch         = "b7000000-0000-4000-8000-000000000009"
+		behaviorID    = "b7000000-0000-4000-8000-000000000010"
+		behaviorEvent = "b7000000-0000-4000-8000-000000000011"
+		messageID     = "b7000000-0000-4000-8000-000000000012"
+		messageEvent  = "b7000000-0000-4000-8000-000000000013"
+		contextID     = "b7000000-0000-4000-8000-000000000014"
+		contextEvent  = "b7000000-0000-4000-8000-000000000015"
 	)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	binding := func(id string, fill string) behavior.Binding {
@@ -57,6 +59,12 @@ func TestContextSourceStoreLoadsOnlyFencedImmutableTenantSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	contextDocument := MessageDocument{SchemaVersion: 1, Role: "user", Content: []provider.ContentBlock{{Type: "text", Text: `TRUSTED_PRODUCT_CONTEXT_JSON\n{"mission":{"context_id":"mission:b7"}}`}}}
+	contextJSON, _ := json.Marshal(contextDocument)
+	contextManifest, err := payloads.Put(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: contextID, Class: "run-message", ContentType: "application/json"}, contextJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
 	setup := []struct {
 		query string
 		args  []any
@@ -69,8 +77,10 @@ func TestContextSourceStoreLoadsOnlyFencedImmutableTenantSources(t *testing.T) {
 		{`INSERT INTO agent.jobs(id,tenant_id,command_id,queue_class,resource_class,priority,cost_units,max_attempts,status,available_at,due_at,enqueued_at) VALUES($1,$2,$3,'interactive','llm',50,1,5,'running',$4,$5,$4)`, []any{jobID, tenantID, commandID, now, now.Add(time.Hour)}},
 		{`INSERT INTO agent.job_attempts(id,tenant_id,job_id,command_id,fence,lease_token_hash,lease_expires_at,worker_id,status,started_at) VALUES($1,$2,$3,$4,1,$5,$6,'context-worker','running',$7)`, []any{attemptID, tenantID, jobID, commandID, bytes.Repeat([]byte{0xa7}, 32), now.Add(time.Hour), now}},
 		{`INSERT INTO agent.runs(id,tenant_id,user_id,conversation_id,status,run_version,active_command_id,active_attempt_id,current_fence,lease_token_hash,lease_expires_at,due_at,profile_snapshot_id,budget_snapshot,root_run_id,depth,inherited_budget_microunits,created_at,updated_at) VALUES($1,$2,$3,$4,'executing',3,$5,$6,1,$7,$8,$8,$9,'{"max_cost_microunits":1000}',$1,0,0,$10,$10)`, []any{runID, tenantID, userID, conversation, commandID, attemptID, bytes.Repeat([]byte{0xa7}, 32), now.Add(time.Hour), snapshotID, now}},
-		{`INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES($1,$2,$3,2,'MessageFinalized',1,'run_message',$4,1,$5,$6,$6,'{"kind":"user"}',$4,$7,$8)`, []any{messageEvent, tenantID, userID, messageID, epoch, now, messageManifest.Ref, messageManifest.Hash}},
-		{`INSERT INTO agent.run_messages(id,tenant_id,user_id,run_id,role,message_index,payload_ref,payload_hash,content_hash,content_type,source_kind,trust_label,finalized_event_id,finalized_at) VALUES($1,$2,$3,$4,'user',0,$5,$6,$7,'application/json','conversation_user','user_asserted',$8,$9)`, []any{messageID, tenantID, userID, runID, messageManifest.Ref, messageManifest.Hash, sha256Bytes(messageJSON), messageEvent, now}},
+		{`INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES($1,$2,$3,2,'CoachContextSnapshotted',1,'coach_context',$4,1,$5,$6,$6,'{"kind":"service"}',$4,$7,$8)`, []any{contextEvent, tenantID, userID, contextID, epoch, now, contextManifest.Ref, contextManifest.Hash}},
+		{`INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES($1,$2,$3,3,'MessageFinalized',1,'run_message',$4,1,$5,$6,$6,'{"kind":"user"}',$4,$7,$8)`, []any{messageEvent, tenantID, userID, messageID, epoch, now, messageManifest.Ref, messageManifest.Hash}},
+		{`INSERT INTO agent.run_messages(id,tenant_id,user_id,run_id,role,message_index,payload_ref,payload_hash,content_hash,content_type,source_kind,trust_label,finalized_event_id,finalized_at) VALUES($1,$2,$3,$4,'user',0,$5,$6,$7,'application/json','product_context','derived',$8,$9)`, []any{contextID, tenantID, userID, runID, contextManifest.Ref, contextManifest.Hash, sha256Bytes(contextJSON), contextEvent, now}},
+		{`INSERT INTO agent.run_messages(id,tenant_id,user_id,run_id,role,message_index,payload_ref,payload_hash,content_hash,content_type,source_kind,trust_label,finalized_event_id,finalized_at) VALUES($1,$2,$3,$4,'user',1,$5,$6,$7,'application/json','conversation_user','user_asserted',$8,$9)`, []any{messageID, tenantID, userID, runID, messageManifest.Ref, messageManifest.Hash, sha256Bytes(messageJSON), messageEvent, now}},
 	}
 	for _, statement := range setup {
 		if _, err = admin.Exec(ctx, statement.query, statement.args...); err != nil {
@@ -81,11 +91,11 @@ func TestContextSourceStoreLoadsOnlyFencedImmutableTenantSources(t *testing.T) {
 	claim.RunID, claim.TenantID, claim.UserID, claim.StoreEpoch, claim.CommandID, claim.JobID, claim.AttemptID, claim.RunVersion, claim.Fence = runID, tenantID, userID, epoch, commandID, jobID, attemptID, 3, 1
 	store := ContextSourceStore{Pool: agent, Payloads: payloads}
 	sources, err := store.Load(ctx, Execution{Claim: claim, Payload: CommandPayload{RunID: runID, CorrelationID: "context-correlation"}, TurnIndex: 1})
-	if err != nil || sources.RunID != runID || sources.BehaviorSnapshotID != snapshotID || len(sources.Messages) != 1 || sources.Messages[0].Document.Content[0].Text != "Explain my next step" {
+	if err != nil || sources.RunID != runID || sources.BehaviorSnapshotID != snapshotID || len(sources.Messages) != 2 || sources.Messages[0].SourceKind != "product_context" || !strings.HasPrefix(sources.Messages[0].Document.Content[0].Text, "TRUSTED_PRODUCT_CONTEXT_JSON") || sources.Messages[1].Document.Content[0].Text != "Explain my next step" {
 		t.Fatalf("sources=%#v err=%v", sources, err)
 	}
 	stale := claim
-	stale.CommandID = "a7000000-0000-4000-8000-000000000099"
+	stale.CommandID = "b7000000-0000-4000-8000-000000000099"
 	if _, err = store.Load(ctx, Execution{Claim: stale}); !errors.Is(err, ErrContextFence) {
 		t.Fatalf("stale command error=%v", err)
 	}

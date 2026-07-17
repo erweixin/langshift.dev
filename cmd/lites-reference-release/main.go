@@ -15,11 +15,12 @@ func main() {
 	secretRef := flag.String("credential-secret-ref", "", "Vault credential reference")
 	secretVersion := flag.String("credential-secret-version", "", "pinned Vault secret version")
 	runtimeImage := flag.String("runtime-image", "", "signed reference Runtime image at sha256 digest")
+	toolWorkerImage := flag.String("tool-worker-image", "", "signed trusted ToolWorker image at sha256 digest")
 	flag.Parse()
 	if flag.NArg() != 0 || !filepath.IsAbs(*output) {
 		fatal(referenceassets.ErrInvalid)
 	}
-	definitions, err := referenceassets.Build(referenceassets.Config{ProviderHost: *host, CredentialSecretRef: *secretRef, CredentialSecretVersion: *secretVersion, RuntimeImage: *runtimeImage})
+	definitions, err := referenceassets.Build(referenceassets.Config{ProviderHost: *host, CredentialSecretRef: *secretRef, CredentialSecretVersion: *secretVersion, RuntimeImage: *runtimeImage, ToolWorkerImage: *toolWorkerImage})
 	if err == nil {
 		err = referenceassets.Write(*output, definitions)
 	}

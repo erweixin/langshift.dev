@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/langshift/lites/internal/toolworker"
 )
 
 type config struct {
@@ -20,7 +21,7 @@ type config struct {
 	natsURLs                                                                                                                         []string
 	natsName, natsCredentialsFile, natsCAFile, natsCertFile, natsKeyFile, streamName, consumerName                                   string
 	artifactPath, artifactHash, adapterFile, workerID, executionIDKeyFile, executionLeasePepperFile, healthAddress                   string
-	s3Region, s3Endpoint, payloadBucket, payloadPrefix, s3KMSKeyID                                                                   string
+	s3Region, s3Endpoint, payloadBucket, payloadPrefix, artifactBucket, artifactPrefix, s3KMSKeyID                                   string
 	s3PathStyle                                                                                                                      bool
 	s3Encryption                                                                                                                     types.ServerSideEncryption
 	vaultAddress, vaultNamespace, vaultMount, vaultTokenFile, vaultCAFile, vaultCertFile, vaultKeyFile, vaultTLSName, vaultKeyPrefix string
@@ -28,6 +29,7 @@ type config struct {
 	allowInsecure                                                                                                                    bool
 	streamReplicas, concurrency, maxDeliver, maxAckPending, maximumCommand, maximumEvidence, maximumRounds                           int
 	shardCount, tenantPage, effectPage                                                                                               int
+	artifactMaxBytes                                                                                                                 int64
 	ackWait, ackTimeout, pullExpires, messageHeartbeat, busyDelay, natsRetryDelay, executionLeaseTTL, reconciliationHeartbeat        time.Duration
 	reconciliationRetryDelay, maximumReconciliationRetryDelay, lookupTimeout                                                         time.Duration
 	sweeperInterval, sweeperCycleTimeout, sweeperUnlockTimeout, abandonedReconcileDelay                                              time.Duration
@@ -44,7 +46,7 @@ func loadConfig() (config, error) {
 		epochURL: os.Getenv("STORE_EPOCH_URL"), epochTokenFile: os.Getenv("STORE_EPOCH_TOKEN_FILE"), epochCAFile: os.Getenv("STORE_EPOCH_ROOT_CA_FILE"), epochCertFile: os.Getenv("STORE_EPOCH_CLIENT_CERT_FILE"), epochKeyFile: os.Getenv("STORE_EPOCH_CLIENT_KEY_FILE"), epochTLSName: os.Getenv("STORE_EPOCH_TLS_SERVER_NAME"),
 		natsURLs: split(os.Getenv("NATS_URLS")), natsName: env("NATS_CLIENT_NAME", "lites-tool-reconciliation-worker"), natsCredentialsFile: os.Getenv("NATS_CREDENTIALS_FILE"), natsCAFile: os.Getenv("NATS_ROOT_CA_FILE"), natsCertFile: os.Getenv("NATS_CLIENT_CERT_FILE"), natsKeyFile: os.Getenv("NATS_CLIENT_KEY_FILE"), streamName: env("NATS_COMMAND_STREAM", "LITES_COMMANDS"), consumerName: env("NATS_CONSUMER_NAME", "tool-reconciliation-worker-v1"),
 		artifactPath: os.Getenv("TOOL_REGISTRY_ARTIFACT_FILE"), artifactHash: os.Getenv("TOOL_REGISTRY_ARTIFACT_HASH"), adapterFile: os.Getenv("TOOL_RECONCILIATION_ADAPTERS_FILE"), workerID: env("TOOL_RECONCILIATION_WORKER_ID", os.Getenv("HOSTNAME")), executionIDKeyFile: os.Getenv("EXECUTION_ID_KEY_FILE"), executionLeasePepperFile: os.Getenv("EXECUTION_LEASE_PEPPER_FILE"), healthAddress: env("HEALTH_ADDRESS", "127.0.0.1:8091"),
-		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: env("S3_PAYLOAD_PREFIX", "restricted"), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"), s3Encryption: types.ServerSideEncryption(env("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))),
+		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: env("S3_PAYLOAD_PREFIX", "restricted"), artifactBucket: os.Getenv("S3_ARTIFACT_BUCKET"), artifactPrefix: env("S3_ARTIFACT_PREFIX", "commercial"), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"), s3Encryption: types.ServerSideEncryption(env("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))),
 		vaultAddress: os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: env("VAULT_KV_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: env("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"),
 		environment: os.Getenv("LITES_ENVIRONMENT"), version: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), allowInsecure: allow,
 	}
@@ -77,17 +79,20 @@ func loadConfig() (config, error) {
 	if value.traceRatio, err = optionalFloat("TRACE_SAMPLE_RATIO", .1); err != nil {
 		return config{}, err
 	}
+	if value.artifactMaxBytes, err = optionalInt64("ARTIFACT_MAX_BYTES", toolworker.ArtifactExportMaximumBytes); err != nil {
+		return config{}, err
+	}
 	return value, value.validate()
 }
 
 func (value config) validate() error {
-	required := []string{value.databaseURL, value.epochURL, value.artifactPath, value.artifactHash, value.adapterFile, value.workerID, value.executionIDKeyFile, value.executionLeasePepperFile, value.s3Region, value.payloadBucket, value.vaultAddress, value.vaultMount, value.vaultKeyPrefix, value.healthAddress, value.environment, value.version, value.region}
+	required := []string{value.databaseURL, value.epochURL, value.artifactPath, value.artifactHash, value.adapterFile, value.workerID, value.executionIDKeyFile, value.executionLeasePepperFile, value.s3Region, value.payloadBucket, value.artifactBucket, value.vaultAddress, value.vaultMount, value.vaultKeyPrefix, value.healthAddress, value.environment, value.version, value.region}
 	for _, item := range required {
 		if item == "" {
 			return errors.New("required tool reconciliation worker configuration is missing")
 		}
 	}
-	if len(value.natsURLs) == 0 || value.streamReplicas < 1 || value.concurrency < 1 || value.concurrency > 512 || value.maxDeliver < 5 || value.maxAckPending < value.concurrency || value.maximumCommand < 1 || value.maximumCommand > 16<<20 || value.maximumEvidence < 1 || value.maximumEvidence > 16<<20 || value.maximumRounds < 1 || value.maximumRounds > 100 || value.shardCount < 1 || value.shardCount > 256 || value.tenantPage < 1 || value.tenantPage > 5000 || value.effectPage < 1 || value.effectPage > 500 || value.ackWait <= value.ackTimeout || value.ackTimeout <= value.messageHeartbeat || value.executionLeaseTTL < value.ackTimeout || value.reconciliationHeartbeat <= 0 || value.reconciliationHeartbeat >= value.executionLeaseTTL || value.reconciliationRetryDelay < time.Second || value.maximumReconciliationRetryDelay < value.reconciliationRetryDelay || value.maximumReconciliationRetryDelay > 7*24*time.Hour || value.lookupTimeout < time.Second || value.lookupTimeout > 5*time.Minute || value.sweeperInterval <= 0 || value.sweeperCycleTimeout < value.sweeperInterval || value.sweeperCycleTimeout > 15*time.Minute || value.sweeperUnlockTimeout <= 0 || value.sweeperUnlockTimeout > 10*time.Second || value.abandonedReconcileDelay <= 0 || value.abandonedReconcileDelay > 24*time.Hour || value.traceRatio < 0 || value.traceRatio > 1 || (value.natsCertFile == "") != (value.natsKeyFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
+	if len(value.natsURLs) == 0 || value.streamReplicas < 1 || value.concurrency < 1 || value.concurrency > 512 || value.maxDeliver < 5 || value.maxAckPending < value.concurrency || value.maximumCommand < 1 || value.maximumCommand > 16<<20 || value.maximumEvidence < 1 || value.maximumEvidence > 16<<20 || value.maximumRounds < 1 || value.maximumRounds > 100 || value.shardCount < 1 || value.shardCount > 256 || value.tenantPage < 1 || value.tenantPage > 5000 || value.effectPage < 1 || value.effectPage > 500 || value.ackWait <= value.ackTimeout || value.ackTimeout <= value.messageHeartbeat || value.executionLeaseTTL < value.ackTimeout || value.reconciliationHeartbeat <= 0 || value.reconciliationHeartbeat >= value.executionLeaseTTL || value.reconciliationRetryDelay < time.Second || value.maximumReconciliationRetryDelay < value.reconciliationRetryDelay || value.maximumReconciliationRetryDelay > 7*24*time.Hour || value.lookupTimeout < time.Second || value.lookupTimeout > 5*time.Minute || value.sweeperInterval <= 0 || value.sweeperCycleTimeout < value.sweeperInterval || value.sweeperCycleTimeout > 15*time.Minute || value.sweeperUnlockTimeout <= 0 || value.sweeperUnlockTimeout > 10*time.Second || value.abandonedReconcileDelay <= 0 || value.abandonedReconcileDelay > 24*time.Hour || value.artifactMaxBytes < 1 || value.artifactMaxBytes > toolworker.ArtifactExportMaximumBytes || value.traceRatio < 0 || value.traceRatio > 1 || (value.natsCertFile == "") != (value.natsKeyFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return errors.New("tool reconciliation worker configuration is invalid")
 	}
 	if value.s3Encryption == types.ServerSideEncryptionAwsKms && value.s3KMSKeyID == "" || value.s3Encryption != types.ServerSideEncryptionAwsKms && value.s3Encryption != types.ServerSideEncryptionAes256 {
@@ -169,6 +174,13 @@ func optionalInt(name string, fallback int) (int, error) {
 		return fallback, nil
 	}
 	return strconv.Atoi(value)
+}
+func optionalInt64(name string, fallback int64) (int64, error) {
+	value, ok := os.LookupEnv(name)
+	if !ok {
+		return fallback, nil
+	}
+	return strconv.ParseInt(value, 10, 64)
 }
 func optionalDuration(name string, fallback time.Duration) (time.Duration, error) {
 	value, ok := os.LookupEnv(name)

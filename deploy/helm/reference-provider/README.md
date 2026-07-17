@@ -33,7 +33,8 @@ go run ./cmd/lites-reference-release \
   --provider-host reference-provider.example.com \
   --credential-secret-ref lites/providers/stage3-reference \
   --credential-secret-version 7 \
-  --runtime-image ghcr.io/organization/lites-reference-tool-runtime@sha256:FULL_DIGEST
+  --runtime-image ghcr.io/organization/lites-reference-tool-runtime@sha256:FULL_DIGEST \
+  --tool-worker-image ghcr.io/organization/lites-tool-worker@sha256:FULL_DIGEST
 ```
 
 Review and commit that definition, then build it with

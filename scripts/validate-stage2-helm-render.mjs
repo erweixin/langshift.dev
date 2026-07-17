@@ -28,20 +28,20 @@ const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 const byKind = (kind) => documents.filter((document) => document.kind === kind);
 const expectedCounts = {
-  ConfigMap: 15,
-  Deployment: 15,
-  ExternalSecret: 15,
-  HorizontalPodAutoscaler: 11,
+  ConfigMap: 18,
+  Deployment: 18,
+  ExternalSecret: 18,
+  HorizontalPodAutoscaler: 14,
   Job: 1,
-  NetworkPolicy: 18,
-  PodDisruptionBudget: 15,
-  Service: 6,
-  ServiceAccount: 15,
+  NetworkPolicy: 21,
+  PodDisruptionBudget: 18,
+  Service: 8,
+  ServiceAccount: 18,
 };
 for (const [kind, count] of Object.entries(expectedCounts)) assert(byKind(kind).length === count, `${kind} count ${byKind(kind).length}, expected ${count}`);
-assert(documents.length === 111, `resource count ${documents.length}, expected 111`);
+assert(documents.length === 134, `resource count ${documents.length}, expected 134`);
 
-const components = ["api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "runtime-sweeper", "run-cancellation-reconciler", "store-epoch-authority"];
+const components = ["web-app", "api-gateway", "identity-service", "realtime-gateway", "behavior-control-plane", "agent-control-plane", "product-service", "product-worker", "identity-import-worker", "identity-mail-worker", "outbox-publisher", "agent-scheduler", "agent-worker", "tool-worker", "tool-reconciliation-worker", "runtime-sweeper", "run-cancellation-reconciler", "store-epoch-authority"];
 for (const component of components) {
   const deployment = byKind("Deployment").find((document) => document.name === `lites-${component}`);
   assert(Boolean(deployment), `missing Deployment for ${component}`);
@@ -84,6 +84,11 @@ const behaviorPolicy = byKind("NetworkPolicy").find((document) => document.name 
 assert(Boolean(behaviorPolicy) && /app\.kubernetes\.io\/name:\s+behavior-rollback-controller[\s\S]*?port:\s+8444/.test(behaviorPolicy.body), "behavior control plane lacks selector-scoped rollback-controller ingress");
 const behaviorService = byKind("Service").find((document) => document.name === "lites-behavior-control-plane");
 assert(Boolean(behaviorService) && /name:\s+https, port:\s+8443/.test(behaviorService.body) && /name:\s+rollback, port:\s+8444/.test(behaviorService.body), "behavior control plane service does not expose separated admin and rollback ports");
+const webService = byKind("Service").find((document) => document.name === "lites-web-app");
+assert(Boolean(webService) && /name:\s+http, port:\s+3000, targetPort:\s+health/.test(webService.body), "web app service does not expose the health-checked HTTP port");
+const webPolicy = byKind("NetworkPolicy").find((document) => document.name === "lites-web-app");
+assert(Boolean(webPolicy) && /kubernetes\.io\/metadata\.name:\s+edge-system[\s\S]*?port:\s+3000/.test(webPolicy.body), "web app lacks edge-only ingress");
+assert(Boolean(webPolicy) && /app\.kubernetes\.io\/component:\s+api-gateway[\s\S]*?port:\s+8443/.test(webPolicy.body), "web app lacks selector-scoped API gateway egress");
 
 for (const pdb of byKind("PodDisruptionBudget")) assert(/minAvailable:\s+2/.test(pdb.body), `${pdb.name} does not preserve two replicas`);
 for (const hpa of byKind("HorizontalPodAutoscaler")) {
@@ -104,4 +109,4 @@ if (failures.length) {
   for (const failure of failures) console.error(failure);
   process.exit(1);
 }
-console.log(`stage-2 helm contract: resources=${documents.length} deployments=15 multi_az=15 external_secrets=15 default_deny=1 status=passed`);
+console.log(`stage-2 helm contract: resources=${documents.length} deployments=18 multi_az=18 external_secrets=18 default_deny=1 status=passed`);

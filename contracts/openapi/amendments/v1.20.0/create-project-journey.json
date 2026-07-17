@@ -1,0 +1,138 @@
+{
+  "amendmentVersion": "1.20.0",
+  "baseContractVersion": "1.19.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "projects.list.v2": {
+      "method": "GET", "path": "/v1/projects", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope",
+      "optionalQuery": ["cursor"], "responseContentType": "application/vnd.lites.projects.v2+json", "responseSchema": "ProjectListResponseV2", "cachePolicy": "private_no_store"
+    },
+    "projects.create.v2": {
+      "method": "POST", "path": "/v1/projects", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope", "csrf": "required",
+      "idempotency": "required_encrypted_durable_response", "requestContentType": "application/vnd.lites.project-create.v2+json", "requestSchema": "ProjectCreateRequestV2",
+      "responseContentType": "application/vnd.lites.project.v2+json", "responseSchema": "ProjectMutationResponseV2",
+      "admission": "Mission must be active and the supplied accepted Route revision must be the Mission current Route. Brief and event commit atomically."
+    },
+    "projects.update.v2": {
+      "method": "PATCH", "path": "/v1/projects/{project_id}", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope", "csrf": "required",
+      "idempotency": "required_encrypted_durable_response", "requestContentType": "application/vnd.lites.project-status.v2+json", "requestSchema": "ProjectStatusRequestV2",
+      "responseContentType": "application/vnd.lites.project.v2+json", "responseSchema": "ProjectMutationResponseV2", "concurrency": "If-Match must equal expected_project_version."
+    },
+    "milestones.create.v2": {
+      "method": "POST", "path": "/v1/projects/{project_id}/milestones", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope", "csrf": "required",
+      "idempotency": "required_encrypted_durable_response", "requestContentType": "application/vnd.lites.milestone-create.v2+json", "requestSchema": "MilestoneCreateRequestV2",
+      "responseContentType": "application/vnd.lites.milestone.v2+json", "responseSchema": "MilestoneMutationResponseV2", "concurrency": "If-Match must equal expected_project_version. Child creation advances the parent Project version."
+    },
+    "milestones.transition.v2": {
+      "method": "PATCH", "path": "/v1/projects/{project_id}/milestones/{milestone_id}", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope", "csrf": "required",
+      "idempotency": "required_encrypted_durable_response", "requestContentType": "application/vnd.lites.milestone-transition.v2+json", "requestSchema": "MilestoneTransitionRequestV2",
+      "responseContentType": "application/vnd.lites.milestone.v2+json", "responseSchema": "MilestoneMutationResponseV2",
+      "concurrency": "If-Match must equal expected_project_version and expected_milestone_version must match. verify binds the latest durable passed ProjectTestRun for the exact current Workspace head."
+    },
+    "projects.workspace.get.v2": {
+      "method": "GET", "path": "/v1/projects/{project_id}/workspace", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope",
+      "responseContentType": "application/vnd.lites.project-workspace.v2+json", "responseSchema": "ProjectWorkspaceResourceV2", "cachePolicy": "private_no_store"
+    },
+    "projects.workspace.bind.v2": {
+      "method": "POST", "path": "/v1/projects/{project_id}/workspace", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope", "csrf": "required",
+      "idempotency": "required_encrypted_durable_response", "requestContentType": "application/vnd.lites.project-workspace-bind.v2+json", "requestSchema": "ProjectWorkspaceBindRequestV2",
+      "responseContentType": "application/vnd.lites.project-workspace.v2+json", "responseSchema": "ProjectWorkspaceMutationResponseV2", "concurrency": "If-Match must equal expected_project_version. Binding advances the parent Project version."
+    },
+    "projects.workspace.advance.v2": {
+      "method": "PATCH", "path": "/v1/projects/{project_id}/workspace", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope", "csrf": "required",
+      "idempotency": "required_encrypted_durable_response", "requestContentType": "application/vnd.lites.project-workspace-advance.v2+json", "requestSchema": "ProjectWorkspaceAdvanceRequestV2",
+      "responseContentType": "application/vnd.lites.project-workspace.v2+json", "responseSchema": "ProjectWorkspaceMutationResponseV2", "concurrency": "Project, binding version and prior head CAS must all match; both binding and parent versions advance."
+    },
+    "projects.test.generate.v2": {
+      "method": "POST", "path": "/v1/projects/{project_id}/test-runs", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope", "csrf": "required",
+      "idempotency": "required_encrypted_durable_response", "requestContentType": "application/vnd.lites.project-test-generation.v2+json", "requestSchema": "ProjectTestGenerationRequestV2",
+      "responseContentType": "application/vnd.lites.project-test-generation.v2+json", "responseSchema": "ProjectTestGenerationResponseV2", "status": 202,
+      "concurrency": "If-Match, Project version, Milestone version, Workspace binding version and head revision must all match. The immutable Evaluator behavior deployment is pinned.",
+      "safety": "The client cannot submit a verdict or result. Only a terminal trusted Evaluator Run can produce Evidence and a ProjectTestRun; stale generations are superseded atomically."
+    },
+    "projects.complete.v2": {
+      "method": "POST", "path": "/v1/projects/{project_id}/completion", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope", "csrf": "required",
+      "idempotency": "required_encrypted_durable_response", "requestContentType": "application/vnd.lites.project-complete.v2+json", "requestSchema": "ProjectCompleteRequestV2",
+      "responseContentType": "application/vnd.lites.project.v2+json", "responseSchema": "ProjectMutationResponseV2",
+      "concurrency": "If-Match must equal expected_project_version. Completion locks the exact Workspace head, required Milestones, passing tests, ready scanned Artifact revision and Evidence into one content-addressed manifest."
+    }
+  },
+  "schemas": {
+    "ProjectCreateRequestV2": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_id", "mission_id", "accepted_route_revision_id", "project_kind", "title", "brief"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "mission_id": {"type": "string", "format": "uuid"},
+        "accepted_route_revision_id": {"type": "string", "format": "uuid"}, "project_kind": {"enum": ["code", "writing", "design"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200}, "brief": {"type": "string", "minLength": 1, "maxLength": 10000}
+      }
+    },
+    "ProjectStatusRequestV2": {
+      "type": "object", "additionalProperties": false, "required": ["request_id", "status", "reason", "expected_project_version"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "status": {"enum": ["active", "blocked", "archived"]}, "reason": {"type": "string", "maxLength": 2000}, "expected_project_version": {"type": "integer", "minimum": 1}}
+    },
+    "MilestoneCreateRequestV2": {
+      "type": "object", "additionalProperties": false, "required": ["request_id", "title", "required", "sequence", "acceptance_spec", "expected_project_version"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "title": {"type": "string", "minLength": 1, "maxLength": 200}, "required": {"type": "boolean"}, "sequence": {"type": "integer", "minimum": 1}, "acceptance_spec": {"type": "object"}, "expected_project_version": {"type": "integer", "minimum": 1}}
+    },
+    "MilestoneTransitionRequestV2": {
+      "type": "object", "additionalProperties": false, "required": ["request_id", "action", "expected_project_version", "expected_milestone_version"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "action": {"enum": ["start", "submit", "verify", "request_rework", "complete"]}, "result": {"type": ["string", "null"], "minLength": 1, "maxLength": 20000}, "expected_project_version": {"type": "integer", "minimum": 1}, "expected_milestone_version": {"type": "integer", "minimum": 1}},
+      "description": "result is required only for submit and forbidden for every other action. It is encrypted under the stable Milestone identity."
+    },
+    "ProjectWorkspaceBindRequestV2": {
+      "type": "object", "additionalProperties": false, "required": ["request_id", "workspace_id", "branch_name", "base_revision", "expected_project_version"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "workspace_id": {"type": "string", "format": "uuid"}, "branch_name": {"type": "string", "minLength": 1, "maxLength": 240}, "base_revision": {"type": "string", "minLength": 1, "maxLength": 500}, "expected_project_version": {"type": "integer", "minimum": 1}}
+    },
+    "ProjectWorkspaceAdvanceRequestV2": {
+      "type": "object", "additionalProperties": false, "required": ["request_id", "binding_id", "expected_head_revision", "head_revision", "expected_project_version", "expected_binding_version"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "binding_id": {"type": "string", "format": "uuid"}, "expected_head_revision": {"type": "string", "minLength": 1, "maxLength": 500}, "head_revision": {"type": "string", "minLength": 1, "maxLength": 500}, "expected_project_version": {"type": "integer", "minimum": 1}, "expected_binding_version": {"type": "integer", "minimum": 1}}
+    },
+    "ProjectTestGenerationRequestV2": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_id", "milestone_id", "validation_kind", "validation_spec", "workspace_revision", "expected_project_version", "expected_milestone_version", "expected_workspace_binding_version"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "milestone_id": {"type": "string", "format": "uuid"},
+        "validation_kind": {"enum": ["deterministic_test", "rubric_review"]}, "validation_spec": {"type": "object", "maxProperties": 128},
+        "workspace_revision": {"type": "string", "minLength": 1, "maxLength": 500}, "expected_project_version": {"type": "integer", "minimum": 1},
+        "expected_milestone_version": {"type": "integer", "minimum": 1}, "expected_workspace_binding_version": {"type": "integer", "minimum": 1}
+      },
+      "description": "Closed admission request. No caller-supplied result, passed flag, verdict, evidence_id or test_run_id is accepted."
+    },
+    "ProjectCompleteRequestV2": {
+      "type": "object", "additionalProperties": false, "required": ["request_id", "reflection", "workspace_revision", "expected_project_version"],
+      "properties": {"request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "reflection": {"type": "string", "minLength": 1, "maxLength": 20000}, "workspace_revision": {"type": "string", "minLength": 1, "maxLength": 500}, "expected_project_version": {"type": "integer", "minimum": 1}}
+    },
+    "ProjectResourceV2": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mission_id", "accepted_route_revision_id", "version", "status", "project_kind", "title", "created_at", "updated_at", "completed_at"],
+      "properties": {"id": {"type": "string", "format": "uuid"}, "mission_id": {"type": "string", "format": "uuid"}, "accepted_route_revision_id": {"type": "string", "format": "uuid"}, "version": {"type": "integer", "minimum": 1}, "status": {"enum": ["draft", "active", "blocked", "completed", "archived"]}, "project_kind": {"enum": ["code", "writing", "design"]}, "title": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}, "completed_at": {"type": ["string", "null"], "format": "date-time"}}
+    },
+    "ProjectMutationResponseV2": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version", "status", "updated_at", "event_id", "replayed"],
+      "properties": {"id": {"type": "string", "format": "uuid"}, "version": {"type": "integer", "minimum": 1}, "status": {"enum": ["active", "blocked", "completed", "archived"]}, "updated_at": {"type": "string", "format": "date-time"}, "event_id": {"type": "string", "format": "uuid"}, "completion_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "replayed": {"type": "boolean"}}
+    },
+    "MilestoneMutationResponseV2": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "status", "updated_at", "event_id", "replayed", "milestone_id", "milestone_version", "milestone_status"],
+      "properties": {"id": {"type": "string", "format": "uuid"}, "version": {"type": "integer", "minimum": 1}, "status": {"enum": ["active", "blocked", "archived"]}, "updated_at": {"type": "string", "format": "date-time"}, "event_id": {"type": "string", "format": "uuid"}, "replayed": {"type": "boolean"}, "milestone_id": {"type": "string", "format": "uuid"}, "milestone_version": {"type": "integer", "minimum": 1}, "milestone_status": {"enum": ["planned", "in_progress", "submitted", "verified", "rework", "completed"]}}
+    },
+    "ProjectWorkspaceResourceV2": {
+      "type": "object", "additionalProperties": false, "required": ["id", "project_id", "workspace_id", "branch_name", "base_revision", "head_revision", "binding_manifest_hash", "version", "updated_at"],
+      "properties": {"id": {"type": "string", "format": "uuid"}, "project_id": {"type": "string", "format": "uuid"}, "workspace_id": {"type": "string", "format": "uuid"}, "branch_name": {"type": "string"}, "base_revision": {"type": "string"}, "head_revision": {"type": "string"}, "binding_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "version": {"type": "integer", "minimum": 1}, "updated_at": {"type": "string", "format": "date-time"}}
+    },
+    "ProjectWorkspaceMutationResponseV2": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "status", "updated_at", "event_id", "replayed", "workspace"],
+      "properties": {"id": {"type": "string", "format": "uuid"}, "version": {"type": "integer", "minimum": 1}, "status": {"enum": ["active", "blocked", "archived"]}, "updated_at": {"type": "string", "format": "date-time"}, "event_id": {"type": "string", "format": "uuid"}, "replayed": {"type": "boolean"}, "workspace": {"$ref": "#/schemas/ProjectWorkspaceResourceV2"}}
+    },
+    "ProjectTestGenerationResponseV2": {
+      "type": "object", "additionalProperties": false, "required": ["generation_id", "run_id", "status", "accepted_at", "project_id", "milestone_id", "project_version", "workspace_revision", "replayed"],
+      "properties": {"generation_id": {"type": "string", "format": "uuid"}, "run_id": {"type": "string", "format": "uuid"}, "status": {"const": "queued"}, "accepted_at": {"type": "string", "format": "date-time"}, "project_id": {"type": "string", "format": "uuid"}, "milestone_id": {"type": "string", "format": "uuid"}, "project_version": {"type": "integer", "minimum": 1}, "workspace_revision": {"type": "string"}, "replayed": {"type": "boolean"}}
+    },
+    "ProjectListResponseV2": {
+      "type": "object", "additionalProperties": false, "required": ["items", "next_cursor"],
+      "properties": {"items": {"type": "array", "items": {"$ref": "#/schemas/ProjectResourceV2"}}, "next_cursor": {"type": ["string", "null"]}}
+    }
+  }
+}

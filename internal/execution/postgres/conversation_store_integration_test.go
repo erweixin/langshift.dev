@@ -39,6 +39,7 @@ func TestCreateConversationIsAtomicReplaySafeAndTenantIsolated(t *testing.T) {
 		{`INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Conversation Owner','active','US',$3),($2,'enterprise','Other Tenant','active','US',NULL)`, []any{tenantID, otherTenantID, userID}},
 		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'conversation-role',1,'active','{}','en','{}')`, []any{roleID, tenantID}},
 		{`INSERT INTO product.missions(id,tenant_id,user_id,status,target_role_profile_id,route_version,claim_set_hash) VALUES($1,$2,$3,'active',$4,1,'conversation-claims')`, []any{missionID, tenantID, userID, roleID}},
+		{`INSERT INTO product.mission_focuses(tenant_id,user_id,mission_id,focus_version) VALUES($1,$2,$3,1)`, []any{tenantID, userID, missionID}},
 	}
 	for _, statement := range statements {
 		if _, err := admin.Exec(ctx, statement.query, statement.args...); err != nil {

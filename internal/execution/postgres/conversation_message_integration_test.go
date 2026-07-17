@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/langshift/lites/internal/behavior"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 )
 
@@ -45,13 +46,14 @@ func TestAcceptMessageRunIsAtomicReplaySafeAndVersionFenced(t *testing.T) {
 		{`INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Message Run Owner','active','US',$2)`, []any{tenantID, userID}},
 		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'message-run-role',1,'active','{}','en','{}')`, []any{roleID, tenantID}},
 		{`INSERT INTO product.missions(id,tenant_id,user_id,status,target_role_profile_id,route_version,claim_set_hash) VALUES($1,$2,$3,'active',$4,1,'message-run-claims')`, []any{missionID, tenantID, userID, roleID}},
+		{`INSERT INTO product.mission_focuses(tenant_id,user_id,mission_id,focus_version) VALUES($1,$2,$3,1)`, []any{tenantID, userID, missionID}},
 	}
 	for _, statement := range statements {
 		if _, err := admin.Exec(ctx, statement.query, statement.args...); err != nil {
 			t.Fatal(err)
 		}
 	}
-	seedExecutionBehavior(t, ctx, admin, tenantID, userID, "route_planner", now)
+	seedExecutionBehavior(t, ctx, admin, tenantID, userID, behavior.Coach, now)
 	store := RunStore{
 		Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return now }},
 		IDKey: bytes.Repeat([]byte{0x73}, 32), StoreEpoch: storeEpoch,
@@ -68,12 +70,12 @@ func TestAcceptMessageRunIsAtomicReplaySafeAndVersionFenced(t *testing.T) {
 	command := AcceptMessageRunCommand{
 		Run: AcceptRunCommand{
 			RunID: runID, TenantID: tenantID, UserID: userID, ConversationID: conversationID, CorrelationID: correlationID,
-			DueAt: now.Add(time.Hour), BehaviorProfile: "route_planner", BehaviorEnvironment: "production",
+			DueAt: now.Add(time.Hour), BehaviorProfile: behavior.Coach, BehaviorEnvironment: "production",
 			BudgetSnapshot: json.RawMessage(`{"max_steps":32,"max_cost_microunits":100000}`), Actor: actor,
 			AcceptedEvent: integrationMessagePointer("run-accepted"), QueuedEvent: integrationMessagePointer("run-queued"), StartCommand: integrationMessagePointer("run-start"),
 			QueueClass: "interactive", ResourceClass: "llm", Priority: 100, CostUnits: 32, MaxAttempts: 5,
 		},
-		MessageID: messageID, ExpectedConversationVersion: 1,
+		MessageID: messageID, ExpectedConversationVersion: 1, ExpectedConversationMode: "coach", ExpectedConversationProfile: behavior.Coach,
 		Message: integrationMessagePointer("user-message"), ContentHash: integrationMessageHash("user-message-content"),
 		AppendedEvent: integrationMessagePointer("message-appended"), Actor: actor,
 	}

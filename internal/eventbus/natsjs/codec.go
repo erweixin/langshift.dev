@@ -22,7 +22,10 @@ var (
 
 var commandSubjects = map[string]string{
 	"CancelRemainingChildRuns":           "lites.commands.queued.cancel-remaining-child-runs",
+	"DeliverReminder":                    "lites.commands.product.deliver-reminder",
 	"ExecuteToolCall":                    "lites.commands.queued.execute-tool-call",
+	"GenerateDailyTask":                  "lites.commands.product.generate-daily-task",
+	"GenerateMissionRoute":               "lites.commands.product.generate-mission-route",
 	"NotifyApproval":                     "lites.commands.queued.notify-approval",
 	"PrepareToolPreview":                 "lites.commands.queued.prepare-tool-preview",
 	"PropagateRunCancellation":           "lites.commands.queued.propagate-run-cancellation",
@@ -30,6 +33,7 @@ var commandSubjects = map[string]string{
 	"ReconcileToolEffect":                "lites.commands.queued.reconcile-tool-effect",
 	"ResumeAgentRun":                     "lites.commands.queued.resume-agent-run",
 	"ResumeParentRun":                    "lites.commands.queued.resume-parent-run",
+	"RoutePlanningRequested":             "lites.commands.product.route-planning-requested",
 	"StartAgentRun":                      "lites.commands.queued.start-agent-run",
 	"account.erasure.schedule":           "lites.commands.account.erasure.schedule",
 	"account.export.prepare":             "lites.commands.account.export.prepare",

@@ -1,0 +1,158 @@
+{
+  "amendmentVersion": "1.19.0",
+  "baseContractVersion": "1.18.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "preferences.get.v2": {
+      "method": "GET",
+      "path": "/v1/preferences",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "responseContentType": "application/vnd.lites.preferences.v2+json",
+      "responseSchema": "PreferencesResourceV2",
+      "cachePolicy": "private_no_store"
+    },
+    "preferences.update.v2": {
+      "method": "PATCH",
+      "path": "/v1/preferences",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.preferences-update.v2+json",
+      "requestSchema": "PreferencesUpdateRequestV2",
+      "responseContentType": "application/vnd.lites.preferences.v2+json",
+      "responseSchema": "PreferencesResourceV2",
+      "concurrency": "If-Match must equal expected_preferences_version. The projection and versioned domain event commit atomically."
+    },
+    "reminders.list.v2": {
+      "method": "GET",
+      "path": "/v1/reminder-schedules",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "responseContentType": "application/vnd.lites.reminder-list.v2+json",
+      "responseSchema": "ReminderListResponseV2",
+      "cachePolicy": "private_no_store"
+    },
+    "reminders.create.v2": {
+      "method": "POST",
+      "path": "/v1/reminder-schedules",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.reminder-create.v2+json",
+      "requestSchema": "ReminderCreateRequestV2",
+      "responseContentType": "application/vnd.lites.reminder.v2+json",
+      "responseSchema": "ReminderResourceV2",
+      "scheduling": "IANA timezone. Nonexistent wall time advances to the first valid local minute; duplicated wall time selects the earliest occurrence still after now."
+    },
+    "reminders.update.v2": {
+      "method": "PATCH",
+      "path": "/v1/reminder-schedules/{schedule_id}",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.reminder-update.v2+json",
+      "requestSchema": "ReminderUpdateRequestV2",
+      "responseContentType": "application/vnd.lites.reminder.v2+json",
+      "responseSchema": "ReminderResourceV2",
+      "concurrency": "If-Match must equal expected_schedule_version. cancelled and completed are terminal states."
+    }
+  },
+  "schemas": {
+    "CoachPreferencesV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "difficulty", "available_minutes", "tone", "explanation_depth"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "difficulty": {"enum": ["easier", "standard", "harder"]},
+        "available_minutes": {"type": "integer", "minimum": 5, "maximum": 480},
+        "tone": {"enum": ["encouraging", "direct", "socratic"]},
+        "explanation_depth": {"enum": ["concise", "balanced", "deep"]}
+      }
+    },
+    "PreferencesUpdateRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "locale", "timezone", "coach_preferences", "expected_preferences_version"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "locale": {"enum": ["en", "zh-CN"]},
+        "timezone": {"type": "string", "minLength": 1, "maxLength": 128, "description": "IANA timezone name"},
+        "coach_preferences": {"$ref": "#/schemas/CoachPreferencesV1"},
+        "expected_preferences_version": {"type": "integer", "minimum": 1}
+      }
+    },
+    "PreferencesResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status", "locale", "timezone", "coach_preferences", "updated_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1},
+        "status": {"const": "active"},
+        "locale": {"enum": ["en", "zh-CN"]},
+        "timezone": {"type": "string"},
+        "coach_preferences": {"$ref": "#/schemas/CoachPreferencesV1"},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "replayed": {"type": "boolean"}
+      }
+    },
+    "ReminderCreateRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "timezone", "local_time", "weekdays", "channel"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "timezone": {"type": "string", "minLength": 1, "maxLength": 128, "description": "IANA timezone name"},
+        "local_time": {"type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},
+        "weekdays": {"type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": {"type": "integer", "minimum": 1, "maximum": 7}},
+        "channel": {"enum": ["email", "push", "in_app"]}
+      }
+    },
+    "ReminderUpdateRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "action", "timezone", "local_time", "weekdays", "channel", "expected_schedule_version"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "action": {"enum": ["replace", "pause", "resume", "cancel"]},
+        "timezone": {"type": "string", "maxLength": 128},
+        "local_time": {"type": "string"},
+        "weekdays": {"type": "array", "maxItems": 7, "uniqueItems": true, "items": {"type": "integer", "minimum": 1, "maximum": 7}},
+        "channel": {"type": "string"},
+        "expected_schedule_version": {"type": "integer", "minimum": 1}
+      },
+      "description": "replace requires a complete valid schedule. pause, resume and cancel require empty schedule fields."
+    },
+    "ReminderResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status", "timezone", "local_time", "weekdays", "channel", "next_occurrence_at", "cancelled_at", "created_at", "updated_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["active", "paused", "cancelled", "completed"]},
+        "timezone": {"type": "string"},
+        "local_time": {"type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},
+        "weekdays": {"type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": {"type": "integer", "minimum": 1, "maximum": 7}},
+        "channel": {"enum": ["email", "push", "in_app"]},
+        "next_occurrence_at": {"type": ["string", "null"], "format": "date-time"},
+        "cancelled_at": {"type": ["string", "null"], "format": "date-time"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "replayed": {"type": "boolean"}
+      }
+    },
+    "ReminderListResponseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {"items": {"type": "array", "items": {"$ref": "#/schemas/ReminderResourceV2"}}}
+    }
+  }
+}

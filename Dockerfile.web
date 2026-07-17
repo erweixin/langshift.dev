@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1.18@sha256:dabfc0969b935b2080555ace70ee69a5261af8a8f1b4df97b9e7fbcf6722eddf
+
+FROM node:24.13.0-trixie-slim@sha256:036dfa7e82a1e867b09248440a2b6635b3f8de557f69e60bac923a10c6e696a8 AS dependencies
+WORKDIR /src
+COPY package.json package-lock.json ./
+COPY apps/web/package.json apps/web/package.json
+RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci --no-audit --no-fund
+
+FROM dependencies AS build
+ARG LITES_API_ORIGIN=https://lites-api-gateway:8443
+ENV LITES_API_ORIGIN=${LITES_API_ORIGIN} \
+    NEXT_TELEMETRY_DISABLED=1
+COPY apps/web apps/web
+RUN npm run web:build
+
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:af85d11ce7ef10172855a6e3649e3e8125b1b9e3ca41849ec2918036f05cb212 AS runtime
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG SOURCE_URL=https://github.com/langshift/lites
+LABEL org.opencontainers.image.title="Lites web app" \
+      org.opencontainers.image.description="Production Lites product experience and API proxy" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+ENV NODE_ENV=production \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000 \
+    NEXT_TELEMETRY_DISABLED=1
+WORKDIR /app
+COPY --from=build --chown=65532:65532 /src/apps/web/.next/standalone ./
+COPY --from=build --chown=65532:65532 /src/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=65532:65532 /src/apps/web/public ./apps/web/public
+COPY --chown=65532:65532 LICENSE /LICENSE
+USER 65532:65532
+EXPOSE 3000
+CMD ["apps/web/server.js"]

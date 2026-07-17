@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/langshift/lites/internal/toolworker"
 )
 
 type config struct {
@@ -24,7 +25,8 @@ type config struct {
 	runtimeTokenPepperFile, provisionDerivationKeyFile, machineIdentityKeyFile                                                                 string
 	capabilityPrivateKeyFile, capabilityKeyID, capabilityIssuer, capabilityAudience                                                            string
 	hostEndpointsFile, hostCAFile, hostCertFile, hostKeyFile, hostTLSName                                                                      string
-	s3Region, s3Endpoint, payloadBucket, payloadPrefix, s3KMSKeyID                                                                             string
+	s3Region, s3Endpoint, payloadBucket, payloadPrefix, artifactBucket, artifactPrefix, s3KMSKeyID                                             string
+	clamavAddress                                                                                                                              string
 	s3PathStyle                                                                                                                                bool
 	s3Encryption                                                                                                                               types.ServerSideEncryption
 	vaultAddress, vaultNamespace, vaultMount, vaultTokenFile, vaultCAFile, vaultCertFile, vaultKeyFile, vaultTLSName, vaultKeyPrefix           string
@@ -32,9 +34,11 @@ type config struct {
 	allowInsecure                                                                                                                              bool
 	streamReplicas, concurrency, maxDeliver, maxAckPending, maximumCommand, maximumInput, maximumResult                                        int
 	ackWait, ackTimeout, pullExpires, messageHeartbeat, busyDelay, retryDelay, executionLeaseTTL, toolHeartbeat, cleanupTimeout, capabilityTTL time.Duration
+	artifactScanTimeout                                                                                                                        time.Duration
 	traceRatio                                                                                                                                 float64
 	scratchBandwidthSize, scratchBandwidthBurst, scratchOperationsSize, scratchOperationsBurst                                                 int64
 	scratchRefillMillis                                                                                                                        int64
+	artifactMaxBytes                                                                                                                           int64
 }
 
 func loadConfig() (config, error) {
@@ -50,8 +54,9 @@ func loadConfig() (config, error) {
 		executionIDKeyFile: os.Getenv("EXECUTION_ID_KEY_FILE"), executionLeasePepperFile: os.Getenv("EXECUTION_LEASE_PEPPER_FILE"), runtimeIDKeyFile: os.Getenv("RUNTIME_ID_KEY_FILE"), runtimeNonceKeyFile: os.Getenv("RUNTIME_NONCE_KEY_FILE"), runtimeTokenPepperFile: os.Getenv("RUNTIME_TOKEN_PEPPER_FILE"), provisionDerivationKeyFile: os.Getenv("RUNTIME_PROVISION_DERIVATION_KEY_FILE"), machineIdentityKeyFile: os.Getenv("RUNTIME_MACHINE_IDENTITY_KEY_FILE"),
 		capabilityPrivateKeyFile: os.Getenv("RUNTIME_CAPABILITY_PRIVATE_KEY_FILE"), capabilityKeyID: os.Getenv("RUNTIME_CAPABILITY_KEY_ID"), capabilityIssuer: env("RUNTIME_CAPABILITY_ISSUER", "event-service"), capabilityAudience: env("RUNTIME_CAPABILITY_AUDIENCE", "runtime-manager"),
 		hostEndpointsFile: os.Getenv("RUNTIME_HOST_ENDPOINTS_FILE"), hostCAFile: os.Getenv("RUNTIME_HOST_ROOT_CA_FILE"), hostCertFile: os.Getenv("RUNTIME_HOST_CLIENT_CERT_FILE"), hostKeyFile: os.Getenv("RUNTIME_HOST_CLIENT_KEY_FILE"), hostTLSName: os.Getenv("RUNTIME_HOST_TLS_SERVER_NAME"),
-		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: env("S3_PAYLOAD_PREFIX", "restricted"), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"), s3Encryption: types.ServerSideEncryption(env("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))),
-		vaultAddress: os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: env("VAULT_KV_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: env("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"),
+		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: env("S3_PAYLOAD_PREFIX", "restricted"), artifactBucket: os.Getenv("S3_ARTIFACT_BUCKET"), artifactPrefix: env("S3_ARTIFACT_PREFIX", "commercial"), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"), s3Encryption: types.ServerSideEncryption(env("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))),
+		clamavAddress: os.Getenv("CLAMAV_ADDRESS"),
+		vaultAddress:  os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: env("VAULT_KV_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: env("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"),
 		environment: os.Getenv("LITES_ENVIRONMENT"), version: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), allowInsecure: allow,
 	}
 	if value.databaseURL, err = loadDatabaseURL(value.databaseURL, value.databaseURLFile); err != nil {
@@ -81,6 +86,7 @@ func loadConfig() (config, error) {
 		fallback time.Duration
 	}{
 		{"NATS_ACK_WAIT", &value.ackWait, 70 * time.Minute}, {"TOOL_ACK_TIMEOUT", &value.ackTimeout, 65 * time.Minute}, {"NATS_PULL_EXPIRES", &value.pullExpires, 5 * time.Second}, {"NATS_MESSAGE_HEARTBEAT", &value.messageHeartbeat, 10 * time.Second}, {"NATS_BUSY_DELAY", &value.busyDelay, 5 * time.Second}, {"NATS_RETRY_DELAY", &value.retryDelay, 10 * time.Second}, {"EXECUTION_LEASE_TTL", &value.executionLeaseTTL, 65 * time.Minute}, {"TOOL_HEARTBEAT_INTERVAL", &value.toolHeartbeat, 10 * time.Second}, {"SANDBOX_CLEANUP_TIMEOUT", &value.cleanupTimeout, 30 * time.Second}, {"RUNTIME_CAPABILITY_TTL", &value.capabilityTTL, 5 * time.Minute},
+		{"ARTIFACT_SCAN_TIMEOUT", &value.artifactScanTimeout, 2 * time.Minute},
 	}
 	for _, item := range durations {
 		if *item.target, err = optionalDuration(item.name, item.fallback); err != nil {
@@ -93,6 +99,7 @@ func loadConfig() (config, error) {
 		fallback int64
 	}{
 		{"SCRATCH_BANDWIDTH_SIZE", &value.scratchBandwidthSize, 64 << 20}, {"SCRATCH_BANDWIDTH_BURST", &value.scratchBandwidthBurst, 128 << 20}, {"SCRATCH_OPERATIONS_SIZE", &value.scratchOperationsSize, 2000}, {"SCRATCH_OPERATIONS_BURST", &value.scratchOperationsBurst, 4000}, {"SCRATCH_REFILL_MILLIS", &value.scratchRefillMillis, 1000},
+		{"ARTIFACT_MAX_BYTES", &value.artifactMaxBytes, toolworker.ArtifactExportMaximumBytes},
 	}
 	for _, item := range int64s {
 		if *item.target, err = optionalInt64(item.name, item.fallback); err != nil {
@@ -106,13 +113,13 @@ func loadConfig() (config, error) {
 }
 
 func (value config) validate() error {
-	required := []string{value.databaseURL, value.runtimeDatabaseURL, value.epochURL, value.artifactPath, value.artifactHash, value.workerID, value.executionIDKeyFile, value.executionLeasePepperFile, value.runtimeIDKeyFile, value.runtimeNonceKeyFile, value.runtimeTokenPepperFile, value.provisionDerivationKeyFile, value.machineIdentityKeyFile, value.capabilityPrivateKeyFile, value.capabilityKeyID, value.capabilityIssuer, value.capabilityAudience, value.hostEndpointsFile, value.s3Region, value.payloadBucket, value.vaultAddress, value.vaultMount, value.vaultKeyPrefix, value.environment, value.version, value.region}
+	required := []string{value.databaseURL, value.runtimeDatabaseURL, value.epochURL, value.artifactPath, value.artifactHash, value.workerID, value.executionIDKeyFile, value.executionLeasePepperFile, value.runtimeIDKeyFile, value.runtimeNonceKeyFile, value.runtimeTokenPepperFile, value.provisionDerivationKeyFile, value.machineIdentityKeyFile, value.capabilityPrivateKeyFile, value.capabilityKeyID, value.capabilityIssuer, value.capabilityAudience, value.hostEndpointsFile, value.s3Region, value.payloadBucket, value.artifactBucket, value.clamavAddress, value.vaultAddress, value.vaultMount, value.vaultKeyPrefix, value.environment, value.version, value.region}
 	for _, item := range required {
 		if item == "" {
 			return errors.New("required tool worker configuration is missing")
 		}
 	}
-	if len(value.natsURLs) == 0 || value.streamReplicas < 1 || value.concurrency < 1 || value.concurrency > 1024 || value.maxDeliver < 5 || value.maxAckPending < value.concurrency || value.maximumCommand < 1 || value.maximumCommand > 16<<20 || value.maximumInput < 1 || value.maximumInput > 16<<20 || value.maximumResult < 1024 || value.maximumResult > 16<<20 || value.ackWait <= value.ackTimeout || value.ackTimeout <= value.messageHeartbeat || value.executionLeaseTTL < value.ackTimeout || value.toolHeartbeat <= 0 || value.toolHeartbeat >= value.executionLeaseTTL || value.cleanupTimeout < time.Second || value.cleanupTimeout > time.Minute || value.capabilityTTL < time.Second || value.capabilityTTL > 5*time.Minute || value.traceRatio < 0 || value.traceRatio > 1 || value.scratchRefillMillis < 1 || value.scratchBandwidthSize < 1 || value.scratchBandwidthBurst < value.scratchBandwidthSize || value.scratchOperationsSize < 1 || value.scratchOperationsBurst < value.scratchOperationsSize || (value.natsCertFile == "") != (value.natsKeyFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.hostCertFile == "") != (value.hostKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
+	if len(value.natsURLs) == 0 || value.streamReplicas < 1 || value.concurrency < 1 || value.concurrency > 1024 || value.maxDeliver < 5 || value.maxAckPending < value.concurrency || value.maximumCommand < 1 || value.maximumCommand > 16<<20 || value.maximumInput != 16<<20 || value.maximumResult < 1024 || value.maximumResult > 16<<20 || value.ackWait <= value.ackTimeout || value.ackTimeout <= value.messageHeartbeat || value.executionLeaseTTL < value.ackTimeout || value.toolHeartbeat <= 0 || value.toolHeartbeat >= value.executionLeaseTTL || value.cleanupTimeout < time.Second || value.cleanupTimeout > time.Minute || value.capabilityTTL < time.Second || value.capabilityTTL > 5*time.Minute || value.artifactScanTimeout < time.Second || value.artifactScanTimeout > 5*time.Minute || value.artifactMaxBytes < 1 || value.artifactMaxBytes > toolworker.ArtifactExportMaximumBytes || value.traceRatio < 0 || value.traceRatio > 1 || value.scratchRefillMillis < 1 || value.scratchBandwidthSize < 1 || value.scratchBandwidthBurst < value.scratchBandwidthSize || value.scratchOperationsSize < 1 || value.scratchOperationsBurst < value.scratchOperationsSize || (value.natsCertFile == "") != (value.natsKeyFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.hostCertFile == "") != (value.hostKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return errors.New("tool worker configuration is invalid")
 	}
 	if value.s3Encryption == types.ServerSideEncryptionAwsKms && value.s3KMSKeyID == "" || value.s3Encryption != types.ServerSideEncryptionAwsKms && value.s3Encryption != types.ServerSideEncryptionAes256 {
@@ -120,6 +127,9 @@ func (value config) validate() error {
 	}
 	if err := secureEndpoint(value.epochURL, value.allowInsecure); err != nil {
 		return errors.New("store epoch endpoint is invalid")
+	}
+	if host, port, err := net.SplitHostPort(value.clamavAddress); err != nil || host == "" || port == "" {
+		return errors.New("ClamAV address is invalid")
 	}
 	if !value.allowInsecure && (value.databaseURLFile == "" || value.runtimeDatabaseURLFile == "" || value.streamReplicas < 3 || value.natsCAFile == "" || value.natsCertFile == "" || value.epochCAFile == "" || value.epochTokenFile == "" && value.epochCertFile == "" || value.hostCAFile == "" || value.hostCertFile == "" || value.vaultCAFile == "" || value.vaultTokenFile == "" && value.vaultCertFile == "" || value.otlpEndpoint == "" || value.otlpCAFile == "" || value.otlpTokenFile == "" && value.otlpCertFile == "") {
 		return errors.New("production tool worker requires file credentials, mTLS, authenticated telemetry, and three JetStream replicas")

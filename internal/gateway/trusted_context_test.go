@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
@@ -65,6 +66,9 @@ func TestGatewayStripsForgedIdentityAndIssuesServerContext(t *testing.T) {
 		}
 		if request.Header.Get(RequestIDHeader) == "attacker-request" {
 			t.Error("client request id survived trust boundary")
+		}
+		if matched := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(request.Header.Get(RequestIDHeader)); !matched {
+			t.Errorf("server request id is not a UUIDv4: %q", request.Header.Get(RequestIDHeader))
 		}
 		if _, err := request.Cookie(session.CookieName); err == nil {
 			t.Error("session bearer cookie survived trust boundary")

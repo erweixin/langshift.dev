@@ -53,14 +53,24 @@ spec:
       ports:
         - {protocol: TCP, port: {{ $workload.health.port }}}
     {{- end }}
-    {{- if eq $name "api-gateway" }}
+    {{- if eq $name "web-app" }}
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ $.Values.global.edgeNamespace }}
       ports:
         - {protocol: TCP, port: {{ $workload.service.port }}}
-    {{- else if or (eq $name "identity-service") (eq $name "realtime-gateway") (eq $name "behavior-control-plane") (eq $name "agent-control-plane") }}
+    {{- else if eq $name "api-gateway" }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.global.edgeNamespace }}
+        - podSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" "web-app") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: {{ $workload.service.port }}}
+    {{- else if or (eq $name "identity-service") (eq $name "realtime-gateway") (eq $name "behavior-control-plane") (eq $name "agent-control-plane") (eq $name "product-service") }}
     - from:
         - podSelector:
             matchLabels:
@@ -80,7 +90,7 @@ spec:
     {{- end }}
     {{- else if eq $name "store-epoch-authority" }}
     - from:
-        {{- range $client := list "identity-service" "behavior-control-plane" "agent-control-plane" "identity-import-worker" "identity-mail-worker" "outbox-publisher" "agent-scheduler" "agent-worker" "tool-worker" "tool-reconciliation-worker" "runtime-sweeper" "run-cancellation-reconciler" }}
+        {{- range $client := list "identity-service" "behavior-control-plane" "agent-control-plane" "product-service" "product-worker" "identity-import-worker" "identity-mail-worker" "outbox-publisher" "agent-scheduler" "agent-worker" "tool-worker" "tool-reconciliation-worker" "runtime-sweeper" "run-cancellation-reconciler" }}
         - podSelector:
             matchLabels:
               {{- include "lites.selectorLabels" (dict "root" $ "name" $client) | nindent 14 }}
@@ -98,7 +108,14 @@ spec:
               app.kubernetes.io/name: opentelemetry-collector
       ports:
         - {protocol: TCP, port: 4317}
-    {{- if eq $name "api-gateway" }}
+    {{- if eq $name "web-app" }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" "api-gateway") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8443}
+    {{- else if eq $name "api-gateway" }}
     - to:
         - podSelector:
             matchLabels:
@@ -123,7 +140,13 @@ spec:
               {{- include "lites.selectorLabels" (dict "root" $ "name" "agent-control-plane") | nindent 14 }}
       ports:
         - {protocol: TCP, port: 8443}
-    {{- else if or (eq $name "identity-service") (eq $name "behavior-control-plane") (eq $name "agent-control-plane") (eq $name "identity-import-worker") (eq $name "identity-mail-worker") (eq $name "outbox-publisher") (eq $name "agent-scheduler") (eq $name "agent-worker") (eq $name "tool-worker") (eq $name "tool-reconciliation-worker") (eq $name "runtime-sweeper") (eq $name "run-cancellation-reconciler") }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "lites.selectorLabels" (dict "root" $ "name" "product-service") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8443}
+    {{- else if or (eq $name "identity-service") (eq $name "behavior-control-plane") (eq $name "agent-control-plane") (eq $name "product-service") (eq $name "product-worker") (eq $name "identity-import-worker") (eq $name "identity-mail-worker") (eq $name "outbox-publisher") (eq $name "agent-scheduler") (eq $name "agent-worker") (eq $name "tool-worker") (eq $name "tool-reconciliation-worker") (eq $name "runtime-sweeper") (eq $name "run-cancellation-reconciler") }}
     - to:
         - podSelector:
             matchLabels:

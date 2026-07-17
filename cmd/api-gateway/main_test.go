@@ -75,3 +75,48 @@ func TestAgentRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 		})
 	}
 }
+
+func TestProductRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
+	id := "10000000-0000-4000-8000-000000000001"
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "/v1/missions", want: true},
+		{path: "/v1/missions/" + id, want: true},
+		{path: "/v1/missions/" + id + "/focus", want: true},
+		{path: "/v1/route-revisions", want: true},
+		{path: "/v1/route-revisions/" + id + "/accept", want: true},
+		{path: "/v1/daily-tasks", want: true},
+		{path: "/v1/daily-tasks/" + id, want: true},
+		{path: "/v1/submissions", want: true},
+		{path: "/v1/reviews", want: true},
+		{path: "/v1/reviews/" + id, want: true},
+		{path: "/v1/capability-evidence", want: true},
+		{path: "/v1/preferences", want: true},
+		{path: "/v1/reminder-schedules", want: true},
+		{path: "/v1/reminder-schedules/" + id, want: true},
+		{path: "/v1/missions/", want: false},
+		{path: "/v1/missions/not-a-uuid", want: false},
+		{path: "/v1/missions/" + id + "/focus/extra", want: false},
+		{path: "/v1/missions/" + id + "/archive", want: false},
+		{path: "/v1/missions/" + id + "/", want: false},
+		{path: "/v1/route-revisions/", want: false},
+		{path: "/v1/route-revisions/not-a-uuid/accept", want: false},
+		{path: "/v1/route-revisions/" + id, want: false},
+		{path: "/v1/route-revisions/" + id + "/accept/extra", want: false},
+		{path: "/v1/daily-tasks/", want: false},
+		{path: "/v1/daily-tasks/not-a-uuid", want: false},
+		{path: "/v1/daily-tasks/" + id + "/extra", want: false},
+		{path: "/v1/reminder-schedules/", want: false},
+		{path: "/v1/reminder-schedules/not-a-uuid", want: false},
+		{path: "/v1/reminder-schedules/" + id + "/extra", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			if got := isProductRoute(test.path); got != test.want {
+				t.Fatalf("isProductRoute(%q) = %v, want %v", test.path, got, test.want)
+			}
+		})
+	}
+}

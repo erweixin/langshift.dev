@@ -293,5 +293,6 @@ func validMissionStatus(value mission.Status) bool {
 }
 
 func validMutationResult(result MissionMutationResult) bool {
-	return uuidPattern.MatchString(result.Mission.ID) && result.Mission.Version > 0 && validMissionStatus(result.Mission.Status) && uuidPattern.MatchString(result.Mission.TargetRoleProfileID) && !result.Mission.CreatedAt.IsZero() && !result.Mission.UpdatedAt.IsZero() && result.Focus.MissionID != nil && uuidPattern.MatchString(*result.Focus.MissionID) && len(result.EventIDs) <= 2
+	validFocus := result.Focus.MissionID == nil || uuidPattern.MatchString(*result.Focus.MissionID)
+	return uuidPattern.MatchString(result.Mission.ID) && result.Mission.Version > 0 && validMissionStatus(result.Mission.Status) && uuidPattern.MatchString(result.Mission.TargetRoleProfileID) && !result.Mission.CreatedAt.IsZero() && !result.Mission.UpdatedAt.IsZero() && validFocus && len(result.EventIDs) <= 2
 }

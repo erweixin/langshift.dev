@@ -67,6 +67,12 @@ type RequestPortfolioExportCommand struct {
 	Actor                                 json.RawMessage
 	RequestedEvent                        PayloadPointer
 	Run                                   executionpostgres.AcceptRunCommand
+	// Conversation and MessageRun are populated by the public application
+	// service. Keeping them optional preserves the lower-level recovery tests
+	// that seed an already-admitted conversation, while the public path commits
+	// the immutable builder input and Run in the same transaction as the export.
+	Conversation *executionpostgres.CreateConversationCommand
+	MessageRun   *executionpostgres.AcceptMessageRunCommand
 }
 
 type PortfolioExport struct {
@@ -106,6 +112,29 @@ func (store PortfolioExportStore) Request(ctx context.Context, command RequestPo
 	if err := store.requireEpoch(ctx); err != nil {
 		return PortfolioExport{}, err
 	}
+	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return PortfolioExport{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := store.RequestInTx(ctx, tx, command)
+	if err != nil {
+		return PortfolioExport{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return PortfolioExport{}, err
+	}
+	return result, nil
+}
+
+// RequestInTx lets the public idempotency record, encrypted builder input,
+// Conversation, Run, immutable revision manifest, events, and start command
+// share one commit. The caller owns commit or rollback and must perform the
+// store-epoch check before entering its transaction.
+func (store PortfolioExportStore) RequestInTx(ctx context.Context, tx pgx.Tx, command RequestPortfolioExportCommand) (PortfolioExport, error) {
+	if tx == nil || !store.valid() || !validPortfolioExport(command) {
+		return PortfolioExport{}, ErrInvalidPortfolioExport
+	}
 	manifest, manifestHash, artifacts, evidence, err := canonicalPortfolioManifest(command)
 	if err != nil {
 		return PortfolioExport{}, err
@@ -115,11 +144,6 @@ func (store PortfolioExportStore) Request(ctx context.Context, command RequestPo
 		return PortfolioExport{}, ErrConfiguration
 	}
 	now := store.now()
-	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return PortfolioExport{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TenantID); err != nil {
 		return PortfolioExport{}, err
 	}
@@ -132,9 +156,6 @@ func (store PortfolioExportStore) Request(ctx context.Context, command RequestPo
 	if replay, found, replayErr := store.loadPortfolioReplay(ctx, tx, command, manifest, manifestHash, artifacts, evidence, eventIDs.event); replayErr != nil {
 		return PortfolioExport{}, replayErr
 	} else if found {
-		if err = tx.Commit(ctx); err != nil {
-			return PortfolioExport{}, err
-		}
 		return replay, nil
 	}
 
@@ -198,9 +219,23 @@ func (store PortfolioExportStore) Request(ctx context.Context, command RequestPo
 	}
 
 	runStore := executionpostgres.RunStore{Appender: store.Appender, IDKey: store.IDKey, StoreEpoch: store.StoreEpoch, Now: store.Now, Behavior: store.Behavior}
-	acceptedRun, err := runStore.AcceptInTx(ctx, tx, command.Run)
-	if err != nil {
-		return PortfolioExport{}, err
+	if command.Conversation != nil {
+		if _, err = runStore.CreatePortfolioBuilderConversationInTx(ctx, tx, *command.Conversation); err != nil {
+			return PortfolioExport{}, err
+		}
+	}
+	var acceptedRun executionpostgres.AcceptedRun
+	if command.MessageRun != nil {
+		acceptedMessage, acceptErr := runStore.AcceptMessageRunInTx(ctx, tx, *command.MessageRun)
+		if acceptErr != nil {
+			return PortfolioExport{}, acceptErr
+		}
+		acceptedRun = acceptedMessage.AcceptedRun
+	} else {
+		acceptedRun, err = runStore.AcceptInTx(ctx, tx, command.Run)
+		if err != nil {
+			return PortfolioExport{}, err
+		}
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO product.portfolio_exports(id,tenant_id,user_id,project_id,status,revision_manifest,request_id,project_version,workspace_binding_id,workspace_binding_version,workspace_revision,workspace_manifest_hash,export_format,revision_manifest_hash,run_id,start_command_id,request_event_id,created_at,updated_at) VALUES($1,$2,$3,$4,'requested',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)`, command.ExportID, command.TenantID, command.UserID, command.ProjectID, manifest, command.RequestID, command.ProjectVersion, command.Workspace.BindingID, command.Workspace.Version, command.Workspace.Revision, command.Workspace.ManifestHash, command.Format, manifestHash, command.Run.RunID, acceptedRun.StartCommandID, eventIDs.event, now)
 	if err != nil {
@@ -221,9 +256,6 @@ func (store PortfolioExportStore) Request(ctx context.Context, command RequestPo
 	}
 	requested := eventpostgres.Input{Event: eventpostgres.Event{ID: eventIDs.event, TenantID: command.TenantID, UserID: command.UserID, EventType: "PortfolioExportRequested", SchemaVersion: 2, AggregateKind: "portfolio_export", AggregateID: command.ExportID, AggregateVersion: 1, StoreEpoch: store.StoreEpoch, OccurredAt: now, Actor: command.Actor, CorrelationID: command.CorrelationID, PayloadRef: command.RequestedEvent.Ref, PayloadHash: command.RequestedEvent.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: eventIDs.outbox, CommandID: eventIDs.publish, CommandType: "events.publish", PayloadRef: command.RequestedEvent.Ref, PayloadHash: command.RequestedEvent.Hash}}}
 	if _, err = store.Appender.Append(ctx, tx, requested); err != nil {
-		return PortfolioExport{}, err
-	}
-	if err = tx.Commit(ctx); err != nil {
 		return PortfolioExport{}, err
 	}
 	return PortfolioExport{ExportID: command.ExportID, RunID: command.Run.RunID, StartCommandID: acceptedRun.StartCommandID, Status: "requested", Version: 1, RevisionManifestHash: manifestHash, CreatedAt: now}, nil
@@ -320,7 +352,18 @@ func validPortfolioExport(command RequestPortfolioExportCommand) bool {
 		}
 	}
 	run := command.Run
-	return run.RunID != "" && run.TenantID == command.TenantID && run.UserID == command.UserID && run.CorrelationID == command.CorrelationID && run.QueueClass == "background" && run.BehaviorProfile == "artifact_builder" && run.BehaviorEnvironment == "production"
+	if run.RunID == "" || run.TenantID != command.TenantID || run.UserID != command.UserID || run.CorrelationID != command.CorrelationID || run.QueueClass != "background" || run.BehaviorProfile != "artifact_builder" || run.BehaviorEnvironment != "production" && run.BehaviorEnvironment != "staging" {
+		return false
+	}
+	if (command.Conversation == nil) != (command.MessageRun == nil) {
+		return false
+	}
+	if command.Conversation == nil {
+		return true
+	}
+	conversation, message := *command.Conversation, *command.MessageRun
+	return conversation.ConversationID == run.ConversationID && conversation.TenantID == command.TenantID && conversation.UserID == command.UserID && conversation.MissionID != "" && conversation.ProjectID == command.ProjectID && conversation.ProjectVersion == command.ProjectVersion && conversation.MilestoneID == "" && conversation.MilestoneVersion == 0 && conversation.WorkspaceRevision == command.Workspace.Revision && conversation.Mode == "project" && conversation.CorrelationID == command.CorrelationID &&
+		reflect.DeepEqual(message.Run, run) && message.ExpectedConversationVersion == 1 && message.ExpectedConversationMode == "project" && message.ExpectedConversationProfile == "artifact_builder" && message.CoachContext == nil
 }
 
 func (store PortfolioExportStore) portfolioEventIDs(exportID string) (portfolioEventIDs, error) {

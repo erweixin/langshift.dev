@@ -1,0 +1,90 @@
+{
+  "amendmentVersion": "1.17.0",
+  "baseContractVersion": "1.16.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "tasks.list.v2": {
+      "method": "GET",
+      "path": "/v1/daily-tasks",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "optionalQuery": ["cursor"],
+      "responseContentType": "application/vnd.lites.daily-tasks.v2+json",
+      "responseSchema": "DailyTaskListResponseV2",
+      "cachePolicy": "private_no_store"
+    },
+    "tasks.update.v2": {
+      "method": "PATCH",
+      "path": "/v1/daily-tasks/{daily_task_id}",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.daily-task-update.v2+json",
+      "requestSchema": "DailyTaskUpdateRequestV2",
+      "responseContentType": "application/vnd.lites.daily-task-mutation.v2+json",
+      "responseSchema": "DailyTaskMutationResponseV2",
+      "concurrency": "If-Match must equal expected_task_version; state, event and any replacement GenerateDailyTask command commit atomically."
+    }
+  },
+  "schemas": {
+    "DailyTaskResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "mission_id", "route_revision_id", "status", "practice_kind", "task", "estimated_minutes", "difficulty", "focus_version", "scheduled_for", "rescheduled_to", "current_submission_id", "current_review_id", "completed_at", "created_at", "updated_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1},
+        "mission_id": {"type": "string", "format": "uuid"},
+        "route_revision_id": {"type": "string", "format": "uuid"},
+        "status": {"enum": ["scheduled", "in_progress", "submitted", "reviewing", "completed", "skipped", "rescheduled"]},
+        "practice_kind": {"enum": ["code", "writing", "design"]},
+        "task": {"type": "object"},
+        "estimated_minutes": {"type": "integer", "minimum": 5, "maximum": 480},
+        "difficulty": {"enum": ["easier", "standard", "harder"]},
+        "focus_version": {"type": "integer", "minimum": 1},
+        "scheduled_for": {"type": "string", "format": "date"},
+        "rescheduled_to": {"type": ["string", "null"], "format": "date"},
+        "current_submission_id": {"type": ["string", "null"], "format": "uuid"},
+        "current_review_id": {"type": ["string", "null"], "format": "uuid"},
+        "completed_at": {"type": ["string", "null"], "format": "date-time"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "DailyTaskListResponseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "next_cursor"],
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "#/schemas/DailyTaskResourceV2"}},
+        "next_cursor": {"type": ["string", "null"]}
+      }
+    },
+    "DailyTaskUpdateRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "action", "expected_task_version", "reschedule_for"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "action": {"enum": ["start", "skip", "reschedule"]},
+        "expected_task_version": {"type": "integer", "minimum": 1},
+        "reschedule_for": {"type": ["string", "null"], "format": "date"}
+      }
+    },
+    "DailyTaskMutationResponseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status", "updated_at", "event_id", "replayed"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["in_progress", "skipped", "rescheduled"]},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "event_id": {"type": "string", "format": "uuid"},
+        "replayed": {"type": "boolean"}
+      }
+    }
+  }
+}

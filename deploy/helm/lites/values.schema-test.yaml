@@ -9,6 +9,9 @@ global:
   externalSecretStore: {kind: ClusterSecretStore, name: lites-test-secrets}
 
 workloads:
+  web-app:
+    image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    externalSecretRemoteKey: /lites/us-test-1/web-app
   api-gateway:
     image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
     externalSecretRemoteKey: /lites/us-test-1/api-gateway
@@ -41,6 +44,12 @@ workloads:
       AGENT_UPSTREAM_CLIENT_KEY_FILE: /run/secrets/agent-client.key
       AGENT_UPSTREAM_TLS_SERVER_NAME: lites-agent-control-plane
       AGENT_TRUSTED_CONTEXT_AUDIENCE: agent-control-plane
+      PRODUCT_UPSTREAM_URL: https://lites-product-service:8443
+      PRODUCT_UPSTREAM_ROOT_CA_FILE: /run/secrets/product-ca.crt
+      PRODUCT_UPSTREAM_CLIENT_CERT_FILE: /run/secrets/product-client.crt
+      PRODUCT_UPSTREAM_CLIENT_KEY_FILE: /run/secrets/product-client.key
+      PRODUCT_UPSTREAM_TLS_SERVER_NAME: lites-product-service
+      PRODUCT_TRUSTED_CONTEXT_AUDIENCE: product-service
       GATEWAY_SECRET_BUNDLE_FILE: /run/secrets/gateway-bundle.json
       TRUSTED_CONTEXT_KEYRING_FILE: /run/secrets/trusted-context-keyring.json
       PUBLIC_ORIGINS: https://app.example.invalid
@@ -143,9 +152,81 @@ workloads:
       TRUSTED_CONTEXT_KEYRING_FILE: /run/secrets/trusted-context-keyring.json
       TRUSTED_CONTEXT_AUDIENCE: agent-control-plane
       AGENT_CONTROL_SECRET_BUNDLE_FILE: /run/secrets/agent-control-bundle.json
+      CONTROL_BEHAVIOR_ENVIRONMENT: production
+      COACH_CONTEXT_MAX_BYTES: "2097152"
       STORE_EPOCH_URL: https://lites-store-epoch-authority:8443/v1/store-epoch
       STORE_EPOCH_TOKEN_FILE: /run/secrets/store-epoch-token
       STORE_EPOCH_ROOT_CA_FILE: /run/secrets/store-epoch-ca.crt
+      VAULT_ADDR: https://vault.example.invalid
+      VAULT_TOKEN_FILE: /run/secrets/vault-token
+      VAULT_CACERT: /run/secrets/vault-ca.crt
+      S3_REGION: us-test-1
+      S3_PAYLOAD_BUCKET: lites-test-payloads
+      S3_SERVER_SIDE_ENCRYPTION: aws:kms
+      S3_KMS_KEY_ID: test-key
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws-credentials
+      OTLP_ROOT_CA_FILE: /run/secrets/otel-ca.crt
+      OTLP_BEARER_TOKEN_FILE: /run/secrets/otel-token
+    externalEgress: [{cidr: 10.10.0.0/24, ports: [443, 5432]}]
+  product-service:
+    image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    externalSecretRemoteKey: /lites/us-test-1/product-service
+    env:
+      DATABASE_URL_FILE: /run/secrets/database-url
+      LISTEN_ADDRESS: ":8443"
+      HEALTH_ADDRESS: ":8094"
+      SERVER_TLS_CERT_FILE: /run/secrets/server-tls.crt
+      SERVER_TLS_KEY_FILE: /run/secrets/server-tls.key
+      SERVER_CLIENT_CA_FILE: /run/secrets/client-ca.crt
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/secrets/trusted-context-keyring.json
+      TRUSTED_CONTEXT_AUDIENCE: product-service
+      PRODUCT_SECRET_BUNDLE_FILE: /run/secrets/product-bundle.json
+      PRODUCT_CONTENT_RELEASE_DIR: /app/product-content/releases/1.0.0
+      ROUTE_BEHAVIOR_ENVIRONMENT: production
+      STORE_EPOCH_URL: https://lites-store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/secrets/store-epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/secrets/store-epoch-ca.crt
+      VAULT_ADDR: https://vault.example.invalid
+      VAULT_TOKEN_FILE: /run/secrets/vault-token
+      VAULT_CACERT: /run/secrets/vault-ca.crt
+      S3_REGION: us-test-1
+      S3_PAYLOAD_BUCKET: lites-test-payloads
+      S3_SERVER_SIDE_ENCRYPTION: aws:kms
+      S3_KMS_KEY_ID: test-key
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws-credentials
+      OTLP_ROOT_CA_FILE: /run/secrets/otel-ca.crt
+      OTLP_BEARER_TOKEN_FILE: /run/secrets/otel-token
+    externalEgress: [{cidr: 10.10.0.0/24, ports: [443, 5432]}]
+  product-worker:
+    image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    externalSecretRemoteKey: /lites/us-test-1/product-worker
+    env:
+      DATABASE_URL_FILE: /run/secrets/database-url
+      HEALTH_ADDRESS: ":8095"
+      PRODUCT_SECRET_BUNDLE_FILE: /run/secrets/product-bundle.json
+      PRODUCT_INBOX_LEASE_PEPPER_FILE: /run/secrets/product-inbox-pepper
+      PRODUCT_CONTENT_RELEASE_DIR: /app/product-content/releases/1.0.0
+      ROUTE_BEHAVIOR_ENVIRONMENT: production
+      STORE_EPOCH_URL: https://lites-store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/secrets/store-epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/secrets/store-epoch-ca.crt
+      NATS_URLS: tls://lites-nats.data-system.svc.cluster.local:4222
+      NATS_CLIENT_CERT_FILE: /run/secrets/nats-client.crt
+      NATS_CLIENT_KEY_FILE: /run/secrets/nats-client.key
+      NATS_ROOT_CA_FILE: /run/secrets/nats-ca.crt
+      NATS_STREAM_REPLICAS: "3"
+      REMINDER_DELIVERY_URL: https://notification.example.invalid/v1/internal/reminder-deliveries
+      REMINDER_DELIVERY_READINESS_URL: https://notification.example.invalid/ready
+      REMINDER_DELIVERY_TOKEN_FILE: /run/secrets/reminder-delivery-token
+      REMINDER_DELIVERY_ROOT_CA_FILE: /run/secrets/reminder-delivery-ca.crt
+      REMINDER_DELIVERY_TIMEOUT: 20s
+      REMINDER_RECONCILE_INTERVAL: 15s
+      REMINDER_RECONCILE_TENANT_BATCH: "500"
+      REMINDER_RECONCILE_SCHEDULE_BATCH: "100"
+      PORTFOLIO_RECONCILE_INTERVAL: 2s
+      PORTFOLIO_RECONCILE_TENANT_BATCH: "500"
+      PORTFOLIO_RECONCILE_EXPORT_BATCH: "100"
+      PORTFOLIO_EXPORT_RETENTION: 720h
       VAULT_ADDR: https://vault.example.invalid
       VAULT_TOKEN_FILE: /run/secrets/vault-token
       VAULT_CACERT: /run/secrets/vault-ca.crt
@@ -270,6 +351,7 @@ workloads:
       AGENT_ID_KEY_FILE: /run/secrets/agent-id-key
       S3_REGION: us-test-1
       S3_PAYLOAD_BUCKET: lites-payload-test
+      S3_ARTIFACT_BUCKET: lites-artifact-test
       S3_SERVER_SIDE_ENCRYPTION: aws:kms
       S3_KMS_KEY_ID: arn:aws:kms:us-test-1:123456789012:key/00000000-0000-4000-8000-000000000001
       AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws-credentials
@@ -315,6 +397,8 @@ workloads:
       RUNTIME_HOST_TLS_SERVER_NAME: runtime-host.internal
       S3_REGION: us-test-1
       S3_PAYLOAD_BUCKET: lites-payload-test
+      S3_ARTIFACT_BUCKET: lites-artifact-test
+      CLAMAV_ADDRESS: clamav.security-system.svc.cluster.local:3310
       S3_SERVER_SIDE_ENCRYPTION: aws:kms
       S3_KMS_KEY_ID: arn:aws:kms:us-test-1:123456789012:key/00000000-0000-4000-8000-000000000001
       AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws-credentials
@@ -323,7 +407,7 @@ workloads:
       VAULT_CACERT: /run/secrets/vault-ca.crt
       OTLP_ROOT_CA_FILE: /run/secrets/otel-ca.crt
       OTLP_BEARER_TOKEN_FILE: /run/secrets/otel-token
-    externalEgress: [{cidr: 10.10.0.0/24, ports: [443, 5432, 8443]}]
+    externalEgress: [{cidr: 10.10.0.0/24, ports: [443, 3310, 5432, 8443]}]
   tool-reconciliation-worker:
     image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
     externalSecretRemoteKey: /lites/us-test-1/tool-reconciliation-worker
@@ -347,6 +431,7 @@ workloads:
       TOOL_EFFECT_SWEEPER_SHARD_COUNT: "16"
       S3_REGION: us-test-1
       S3_PAYLOAD_BUCKET: lites-payload-test
+      S3_ARTIFACT_BUCKET: lites-artifact-test
       S3_SERVER_SIDE_ENCRYPTION: aws:kms
       S3_KMS_KEY_ID: arn:aws:kms:us-test-1:123456789012:key/00000000-0000-4000-8000-000000000001
       AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws-credentials

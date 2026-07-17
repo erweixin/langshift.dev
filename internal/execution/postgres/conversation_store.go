@@ -13,15 +13,26 @@ import (
 )
 
 type CreateConversationCommand struct {
-	ConversationID string
-	TenantID       string
-	UserID         string
-	MissionID      string
-	Title          *string
-	Mode           string
-	CorrelationID  string
-	Actor          json.RawMessage
-	CreatedEvent   PayloadPointer
+	ConversationID     string
+	TenantID           string
+	UserID             string
+	MissionID          string
+	RouteRevisionID    string
+	FocusVersion       uint64
+	SubmissionID       string
+	SubmissionRevision int
+	RubricVersionID    string
+	TaskVersion        uint64
+	ProjectID          string
+	ProjectVersion     uint64
+	MilestoneID        string
+	MilestoneVersion   uint64
+	WorkspaceRevision  string
+	Title              *string
+	Mode               string
+	CorrelationID      string
+	Actor              json.RawMessage
+	CreatedEvent       PayloadPointer
 }
 
 type ConversationResult struct {
@@ -64,6 +75,76 @@ func (store RunStore) CreateConversation(ctx context.Context, command CreateConv
 // idempotency response and the Conversation aggregate atomically. The caller
 // owns commit or rollback.
 func (store RunStore) CreateConversationInTx(ctx context.Context, tx pgx.Tx, command CreateConversationCommand) (ConversationResult, error) {
+	if command.RouteRevisionID != "" || command.FocusVersion != 0 || command.SubmissionID != "" || command.SubmissionRevision != 0 || command.RubricVersionID != "" || command.TaskVersion != 0 || hasProjectEvaluationBinding(command) {
+		return ConversationResult{}, ErrInvalidCommand
+	}
+	return store.createConversationInTx(ctx, tx, command, conversationAdmissionPublic)
+}
+
+// CreatePlannerConversationInTx admits the internal route-planning
+// conversation for an owned draft or active Mission. It is intentionally a
+// separate entry point so public conversation admission can never widen its
+// active-Mission rule by accidentally setting a flag from request data.
+func (store RunStore) CreatePlannerConversationInTx(ctx context.Context, tx pgx.Tx, command CreateConversationCommand) (ConversationResult, error) {
+	if command.RouteRevisionID != "" || command.FocusVersion != 0 || command.SubmissionID != "" || command.SubmissionRevision != 0 || command.RubricVersionID != "" || command.TaskVersion != 0 || hasProjectEvaluationBinding(command) {
+		return ConversationResult{}, ErrInvalidCommand
+	}
+	return store.createConversationInTx(ctx, tx, command, conversationAdmissionRoutePlanner)
+}
+
+// CreateDailyPlannerConversationInTx is the only admission path for an
+// internal daily-planning conversation. It binds the conversation to the
+// exact accepted route and Focus version that caused generation, preventing a
+// delayed command from silently planning against a newer user intent.
+func (store RunStore) CreateDailyPlannerConversationInTx(ctx context.Context, tx pgx.Tx, command CreateConversationCommand) (ConversationResult, error) {
+	if command.RouteRevisionID == "" || command.FocusVersion == 0 || command.SubmissionID != "" || command.SubmissionRevision != 0 || command.RubricVersionID != "" || command.TaskVersion != 0 || hasProjectEvaluationBinding(command) {
+		return ConversationResult{}, ErrInvalidCommand
+	}
+	return store.createConversationInTx(ctx, tx, command, conversationAdmissionDailyPlanner)
+}
+
+// CreateEvaluatorConversationInTx admits only an exact immutable submission,
+// active rubric revision and the submitted DailyTask version being reviewed.
+func (store RunStore) CreateEvaluatorConversationInTx(ctx context.Context, tx pgx.Tx, command CreateConversationCommand) (ConversationResult, error) {
+	if command.RouteRevisionID != "" || command.FocusVersion != 0 || command.SubmissionID == "" || command.SubmissionRevision < 1 || command.RubricVersionID == "" || command.TaskVersion < 1 || hasProjectEvaluationBinding(command) {
+		return ConversationResult{}, ErrInvalidCommand
+	}
+	return store.createConversationInTx(ctx, tx, command, conversationAdmissionEvaluator)
+}
+
+// CreateProjectEvaluatorConversationInTx is the only admission path for a
+// Project test evaluator. It fences the exact Project, submitted Milestone and
+// Workspace head that were placed in the encrypted evaluator prompt.
+func (store RunStore) CreateProjectEvaluatorConversationInTx(ctx context.Context, tx pgx.Tx, command CreateConversationCommand) (ConversationResult, error) {
+	if command.RouteRevisionID != "" || command.FocusVersion != 0 || command.SubmissionID != "" || command.SubmissionRevision != 0 || command.RubricVersionID != "" || command.TaskVersion != 0 || !completeProjectEvaluationBinding(command) {
+		return ConversationResult{}, ErrInvalidCommand
+	}
+	return store.createConversationInTx(ctx, tx, command, conversationAdmissionProjectEvaluator)
+}
+
+// CreatePortfolioBuilderConversationInTx admits an artifact_builder only for
+// a completed owned Project at the exact immutable Workspace head selected by
+// the export manifest. It deliberately excludes Milestone fields so this path
+// cannot be confused with evaluator admission.
+func (store RunStore) CreatePortfolioBuilderConversationInTx(ctx context.Context, tx pgx.Tx, command CreateConversationCommand) (ConversationResult, error) {
+	if command.RouteRevisionID != "" || command.FocusVersion != 0 || command.SubmissionID != "" || command.SubmissionRevision != 0 || command.RubricVersionID != "" || command.TaskVersion != 0 || !completePortfolioBuilderBinding(command) {
+		return ConversationResult{}, ErrInvalidCommand
+	}
+	return store.createConversationInTx(ctx, tx, command, conversationAdmissionPortfolioBuilder)
+}
+
+type conversationAdmission uint8
+
+const (
+	conversationAdmissionPublic conversationAdmission = iota
+	conversationAdmissionRoutePlanner
+	conversationAdmissionDailyPlanner
+	conversationAdmissionEvaluator
+	conversationAdmissionProjectEvaluator
+	conversationAdmissionPortfolioBuilder
+)
+
+func (store RunStore) createConversationInTx(ctx context.Context, tx pgx.Tx, command CreateConversationCommand, admission conversationAdmission) (ConversationResult, error) {
 	if tx == nil || !store.validCore() || !validCreateConversation(command) {
 		return ConversationResult{}, ErrInvalidCommand
 	}
@@ -78,11 +159,39 @@ func (store RunStore) CreateConversationInTx(ctx context.Context, tx pgx.Tx, com
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TenantID); err != nil {
 		return ConversationResult{}, err
 	}
-	var missionActive bool
-	if err = tx.QueryRow(ctx, `SELECT agent.lock_active_owned_mission($1,$2,$3)`, command.TenantID, command.UserID, command.MissionID).Scan(&missionActive); err != nil {
+	var missionAdmissible bool
+	var admissionQuery string
+	var admissionArgs []any
+	switch admission {
+	case conversationAdmissionPublic:
+		if command.Mode == "coach" {
+			admissionQuery = `SELECT agent.lock_active_focused_mission($1,$2,$3)`
+		} else {
+			admissionQuery = `SELECT agent.lock_active_owned_mission($1,$2,$3)`
+		}
+		admissionArgs = []any{command.TenantID, command.UserID, command.MissionID}
+	case conversationAdmissionRoutePlanner:
+		admissionQuery = `SELECT agent.lock_owned_route_planning_mission($1,$2,$3)`
+		admissionArgs = []any{command.TenantID, command.UserID, command.MissionID}
+	case conversationAdmissionDailyPlanner:
+		admissionQuery = `SELECT agent.lock_owned_daily_planning_mission($1,$2,$3,$4,$5)`
+		admissionArgs = []any{command.TenantID, command.UserID, command.MissionID, command.RouteRevisionID, command.FocusVersion}
+	case conversationAdmissionEvaluator:
+		admissionQuery = `SELECT agent.lock_owned_submission_review($1,$2,$3,$4,$5,$6)`
+		admissionArgs = []any{command.TenantID, command.UserID, command.SubmissionID, command.SubmissionRevision, command.RubricVersionID, command.TaskVersion}
+	case conversationAdmissionProjectEvaluator:
+		admissionQuery = `SELECT agent.lock_owned_project_evaluation($1,$2,$3,$4,$5,$6,$7)`
+		admissionArgs = []any{command.TenantID, command.UserID, command.ProjectID, command.ProjectVersion, command.MilestoneID, command.MilestoneVersion, command.WorkspaceRevision}
+	case conversationAdmissionPortfolioBuilder:
+		admissionQuery = `SELECT agent.lock_owned_portfolio_export($1,$2,$3,$4,$5)`
+		admissionArgs = []any{command.TenantID, command.UserID, command.ProjectID, command.ProjectVersion, command.WorkspaceRevision}
+	default:
+		return ConversationResult{}, ErrInvalidCommand
+	}
+	if err = tx.QueryRow(ctx, admissionQuery, admissionArgs...).Scan(&missionAdmissible); err != nil {
 		return ConversationResult{}, err
 	}
-	if !missionActive {
+	if !missionAdmissible {
 		return ConversationResult{}, ErrRunConflict
 	}
 	tag, err := tx.Exec(ctx, `INSERT INTO agent.conversations(id,tenant_id,user_id,mission_id,version,title,mode,status,created_at,updated_at) VALUES($1,$2,$3,$4,1,$5,$6,'active',$7,$7) ON CONFLICT DO NOTHING`, command.ConversationID, command.TenantID, command.UserID, command.MissionID, command.Title, command.Mode, now)
@@ -112,6 +221,18 @@ func (store RunStore) CreateConversationInTx(ctx context.Context, tx pgx.Tx, com
 		return ConversationResult{}, err
 	}
 	return ConversationResult{ID: command.ConversationID, Version: 1, Status: "active", UpdatedAt: durableTime, EventID: identifiers.event, Replayed: replayed}, nil
+}
+
+func hasProjectEvaluationBinding(command CreateConversationCommand) bool {
+	return command.ProjectID != "" || command.ProjectVersion != 0 || command.MilestoneID != "" || command.MilestoneVersion != 0 || command.WorkspaceRevision != ""
+}
+
+func completeProjectEvaluationBinding(command CreateConversationCommand) bool {
+	return command.ProjectID != "" && command.ProjectVersion > 0 && command.MilestoneID != "" && command.MilestoneVersion > 0 && command.WorkspaceRevision != ""
+}
+
+func completePortfolioBuilderBinding(command CreateConversationCommand) bool {
+	return command.ProjectID != "" && command.ProjectVersion > 0 && command.MilestoneID == "" && command.MilestoneVersion == 0 && command.WorkspaceRevision != ""
 }
 
 func (store RunStore) conversationIdentifiers(conversationID string) (conversationIdentifiers, error) {

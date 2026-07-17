@@ -19,6 +19,7 @@ import (
 	"github.com/langshift/lites/internal/llmgateway/provider"
 	"github.com/langshift/lites/internal/releaseassets"
 	"github.com/langshift/lites/internal/toolregistry"
+	"github.com/langshift/lites/internal/toolworker"
 )
 
 var ErrInvalid = errors.New("reference release definition configuration is invalid")
@@ -30,12 +31,12 @@ var (
 
 type Config struct {
 	ProviderHost, CredentialSecretRef, CredentialSecretVersion string
-	RuntimeImage                                               string
+	RuntimeImage, ToolWorkerImage                              string
 }
 
 func Build(config Config) (releaseassets.Definitions, error) {
 	host := strings.ToLower(config.ProviderHost)
-	if !hostPattern.MatchString(host) || net.ParseIP(host) != nil || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".localhost") || config.CredentialSecretRef == "" || config.CredentialSecretVersion == "" || strings.ContainsAny(config.CredentialSecretRef+config.CredentialSecretVersion, "\x00\r\n") || !imagePattern.MatchString(config.RuntimeImage) {
+	if !hostPattern.MatchString(host) || net.ParseIP(host) != nil || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".localhost") || config.CredentialSecretRef == "" || config.CredentialSecretVersion == "" || strings.ContainsAny(config.CredentialSecretRef+config.CredentialSecretVersion, "\x00\r\n") || !imagePattern.MatchString(config.RuntimeImage) || !imagePattern.MatchString(config.ToolWorkerImage) {
 		return releaseassets.Definitions{}, ErrInvalid
 	}
 	profiles := []behavior.Profile{behavior.RoutePlanner, behavior.DailyPlanner, behavior.Coach, behavior.Evaluator, behavior.ArtifactBuilder}
@@ -54,7 +55,7 @@ func Build(config Config) (releaseassets.Definitions, error) {
 	}
 	definitions := releaseassets.Definitions{
 		DefinitionVersion: releaseassets.DefinitionVersion, Prompts: prompts, Routes: routes,
-		Tools: []toolregistry.Descriptor{referenceTool(config.RuntimeImage)},
+		Tools: []toolregistry.Descriptor{referenceTool(config.RuntimeImage), toolworker.ArtifactExportDescriptor(config.ToolWorkerImage)},
 		Providers: provider.RegistryDocument{SchemaVersion: 1, SnapshotID: "provider-registry:stage3-reference-production", Version: 1, Providers: []provider.ProviderDefinition{{
 			ID: "reference-provider", Type: "openai_compatible", Status: "active", Endpoint: "https://" + host + "/v1/", BoundHost: host, Region: "global",
 			Credential: provider.ManagedCredential{Mode: "bearer", SecretRef: config.CredentialSecretRef, SecretVersion: config.CredentialSecretVersion}, RequestTimeoutText: "2m", MaximumRequestBytes: 8 << 20, MaximumResponseBytes: 16 << 20,

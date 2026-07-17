@@ -54,7 +54,7 @@ node -e 'const x=require(process.argv[1]); if(x.state.messages!==1) process.exit
 minio_user="$(<"${MINIO_ROOT_USER_FILE}")"
 minio_password="$(<"${MINIO_ROOT_PASSWORD_FILE}")"
 minio_host="http://${minio_user}:${minio_password}@minio:9000"
-for bucket in lites-payloads lites-identity-imports; do
+for bucket in lites-payloads lites-artifacts lites-identity-imports; do
   "${compose[@]}" --profile tools run --rm -e MC_HOST_lites="${minio_host}" minio-client mb --ignore-existing "lites/${bucket}" >/dev/null
   "${compose[@]}" --profile tools run --rm -e MC_HOST_lites="${minio_host}" minio-client version enable "lites/${bucket}" >/dev/null
 done

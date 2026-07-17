@@ -106,7 +106,7 @@ func TestSweeperProducesStableEncryptedEvidenceAndReconciliationCommand(t *testi
 		t.Fatalf("reconcile descriptor=%#v expected=%s err=%v", firstPayloads.values[2].descriptor, expectedCommandID, idErr)
 	}
 	var reconcile CommandPayload
-	if err = json.Unmarshal(firstPayloads.values[2].value, &reconcile); err != nil || reconcile.ToolName != candidate.ToolName || reconcile.DescriptorSnapshotID != candidate.DescriptorSnapshotID || reconcile.ProviderRequestID != candidate.ProviderRequestID || reconcile.TerminalToolVersion != candidate.ToolVersion+1 {
+	if err = json.Unmarshal(firstPayloads.values[2].value, &reconcile); err != nil || reconcile.ToolName != candidate.ToolName || reconcile.DescriptorSnapshotID != candidate.DescriptorSnapshotID || reconcile.ProviderRequestID != candidate.ProviderRequestID || reconcile.TerminalToolVersion != candidate.ToolVersion+1 || reconcile.Input.Ref != "encrypted://normalized-input" {
 		t.Fatalf("reconcile payload=%#v err=%v", reconcile, err)
 	}
 
@@ -184,7 +184,7 @@ func testCandidate(at time.Time, toolCallID, effectClass string) executionpostgr
 func testIDKey() []byte { return bytes.Repeat([]byte{0x42}, 32) }
 
 func payloadFor(candidate executionpostgres.ExpiredToolEffectCandidate) *payloadStub {
-	encoded, err := json.Marshal(sourceCommandBinding{SchemaVersion: 1, ToolCallID: candidate.ToolCallID, RunID: candidate.RunID, UserID: candidate.UserID, CorrelationID: "00000000-0000-4000-8000-000000000009", ToolName: candidate.ToolName, DescriptorSnapshotID: candidate.DescriptorSnapshotID, DescriptorHash: string(bytes.Repeat([]byte{'a'}, 64)), RequestHash: candidate.ToolRequestHash, EffectClass: candidate.EffectClass, EffectKey: candidate.EffectKey, EffectScope: candidate.EffectScope, ProviderID: candidate.ProviderID})
+	encoded, err := json.Marshal(sourceCommandBinding{SchemaVersion: 1, ToolCallID: candidate.ToolCallID, RunID: candidate.RunID, UserID: candidate.UserID, CorrelationID: "00000000-0000-4000-8000-000000000009", ToolName: candidate.ToolName, DescriptorSnapshotID: candidate.DescriptorSnapshotID, DescriptorHash: string(bytes.Repeat([]byte{'a'}, 64)), Input: payload.Manifest{Ref: "encrypted://normalized-input", Hash: string(bytes.Repeat([]byte{'b'}, 64))}, RequestHash: candidate.ToolRequestHash, EffectClass: candidate.EffectClass, EffectKey: candidate.EffectKey, EffectScope: candidate.EffectScope, ProviderID: candidate.ProviderID})
 	if err != nil {
 		panic(err)
 	}

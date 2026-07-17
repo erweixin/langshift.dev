@@ -35,6 +35,7 @@ type SetMissionFocusCommand struct {
 	CorrelationID                           string
 	Actor                                   json.RawMessage
 	FocusChangedEvent                       PayloadPointer
+	DailyTask                               DailyTaskTrigger
 }
 
 type ChangeMissionStatusCommand struct {
@@ -47,6 +48,14 @@ type ChangeMissionStatusCommand struct {
 	Actor                                   json.RawMessage
 	StatusChangedEvent                      PayloadPointer
 	FocusChangedEvent                       PayloadPointer
+	DailyTask                               DailyTaskTrigger
+}
+
+type DailyTaskTrigger struct {
+	CommandID, MissionID, RouteRevisionID string
+	ExpectedRouteVersion                  uint64
+	ExpectedFocusVersion                  uint64
+	Payload                               PayloadPointer
 }
 
 type MissionFocusResult struct {
@@ -106,7 +115,10 @@ func (store MissionFocusStore) SetFocusInTx(ctx context.Context, tx pgx.Tx, comm
 	if err = updateFocus(ctx, tx, command.TenantID, command.UserID, state.Focus, next.Focus); err != nil {
 		return MissionFocusResult{}, err
 	}
-	if err = store.appendFocusEvent(ctx, tx, command.MutationID, command.TenantID, command.UserID, command.CorrelationID, command.Actor, command.FocusChangedEvent, next.Focus.Version); err != nil {
+	if err = store.validateDailyTaskTrigger(ctx, tx, command.TenantID, command.UserID, selected, next.Focus, command.DailyTask); err != nil {
+		return MissionFocusResult{}, err
+	}
+	if err = store.appendFocusEvent(ctx, tx, command.MutationID, command.TenantID, command.UserID, command.CorrelationID, command.Actor, command.FocusChangedEvent, next.Focus.Version, command.DailyTask); err != nil {
 		return MissionFocusResult{}, err
 	}
 	identifiers, err := store.missionEventIDs("mission-focus-changed", command.MutationID)
@@ -180,7 +192,10 @@ func (store MissionFocusStore) ChangeStatusInTx(ctx context.Context, tx pgx.Tx, 
 		if err = updateFocus(ctx, tx, command.TenantID, command.UserID, state.Focus, next.Focus); err != nil {
 			return MissionFocusResult{}, err
 		}
-		if err = store.appendFocusEvent(ctx, tx, command.MutationID+":focus", command.TenantID, command.UserID, command.CorrelationID, command.Actor, command.FocusChangedEvent, next.Focus.Version); err != nil {
+		if err = store.validateDailyTaskTrigger(ctx, tx, command.TenantID, command.UserID, afterMission, next.Focus, command.DailyTask); err != nil {
+			return MissionFocusResult{}, err
+		}
+		if err = store.appendFocusEvent(ctx, tx, command.MutationID+":focus", command.TenantID, command.UserID, command.CorrelationID, command.Actor, command.FocusChangedEvent, next.Focus.Version, command.DailyTask); err != nil {
 			return MissionFocusResult{}, err
 		}
 		focusIDs, idErr := store.missionEventIDs("mission-focus-changed", command.MutationID+":focus")
@@ -252,14 +267,43 @@ func (store MissionFocusStore) appendStatusEvent(ctx context.Context, tx pgx.Tx,
 	return err
 }
 
-func (store MissionFocusStore) appendFocusEvent(ctx context.Context, tx pgx.Tx, seed, tenantID, userID, correlationID string, actor json.RawMessage, pointer PayloadPointer, version uint64) error {
+func (store MissionFocusStore) appendFocusEvent(ctx context.Context, tx pgx.Tx, seed, tenantID, userID, correlationID string, actor json.RawMessage, pointer PayloadPointer, version uint64, daily DailyTaskTrigger) error {
 	identifiers, err := store.missionEventIDs("mission-focus-changed", seed)
 	if err != nil {
 		return err
 	}
-	input := eventpostgres.Input{Event: eventpostgres.Event{ID: identifiers.event, TenantID: tenantID, UserID: userID, EventType: "MissionFocusChanged", SchemaVersion: 1, AggregateKind: "mission_focus", AggregateID: userID, AggregateVersion: version, StoreEpoch: store.StoreEpoch, OccurredAt: store.now(), Actor: actor, CorrelationID: correlationID, PayloadRef: pointer.Ref, PayloadHash: pointer.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: identifiers.outbox, CommandID: identifiers.publish, CommandType: "events.publish", PayloadRef: pointer.Ref, PayloadHash: pointer.Hash}}}
+	commands := []eventpostgres.OutboxCommand{{ID: identifiers.outbox, CommandID: identifiers.publish, CommandType: "events.publish", PayloadRef: pointer.Ref, PayloadHash: pointer.Hash}}
+	if daily.CommandID != "" {
+		outboxID, idErr := ids.DeterministicUUID(store.IDKey, "mission-focus-changed:daily-outbox", seed)
+		if idErr != nil {
+			return idErr
+		}
+		commands = append(commands, eventpostgres.OutboxCommand{ID: outboxID, CommandID: daily.CommandID, CommandType: "GenerateDailyTask", TargetAggregateKind: "mission", TargetAggregateID: daily.MissionID, PayloadRef: daily.Payload.Ref, PayloadHash: daily.Payload.Hash})
+	}
+	input := eventpostgres.Input{Event: eventpostgres.Event{ID: identifiers.event, TenantID: tenantID, UserID: userID, EventType: "MissionFocusChanged", SchemaVersion: 1, AggregateKind: "mission_focus", AggregateID: userID, AggregateVersion: version, StoreEpoch: store.StoreEpoch, OccurredAt: store.now(), Actor: actor, CorrelationID: correlationID, PayloadRef: pointer.Ref, PayloadHash: pointer.Hash}, Commands: commands}
 	_, err = store.Appender.Append(ctx, tx, input)
 	return err
+}
+
+func (store MissionFocusStore) validateDailyTaskTrigger(ctx context.Context, tx pgx.Tx, tenantID, userID string, selected mission.Mission, focus mission.Focus, trigger DailyTaskTrigger) error {
+	if trigger.CommandID == "" {
+		if trigger.MissionID != "" || trigger.RouteRevisionID != "" || trigger.ExpectedRouteVersion != 0 || trigger.ExpectedFocusVersion != 0 || trigger.Payload.Ref != "" || trigger.Payload.Hash != "" {
+			return mission.ErrInvalid
+		}
+		return nil
+	}
+	if !validPointer(trigger.Payload) || trigger.MissionID != selected.ID || trigger.RouteRevisionID == "" || trigger.ExpectedRouteVersion == 0 || trigger.ExpectedFocusVersion == 0 || selected.Status != mission.Active || focus.MissionID != selected.ID || focus.Version != trigger.ExpectedFocusVersion {
+		return mission.ErrInvalid
+	}
+	var routeVersion uint64
+	var currentRouteID, routeStatus string
+	if err := tx.QueryRow(ctx, `SELECT m.route_version,COALESCE(m.current_route_revision_id::text,''),COALESCE(r.status,'') FROM product.missions m LEFT JOIN product.route_revisions r ON r.tenant_id=m.tenant_id AND r.id=m.current_route_revision_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.id=$3`, tenantID, userID, selected.ID).Scan(&routeVersion, &currentRouteID, &routeStatus); err != nil {
+		return err
+	}
+	if routeVersion != trigger.ExpectedRouteVersion || currentRouteID != trigger.RouteRevisionID || routeStatus != "accepted" {
+		return ErrMissionConflict
+	}
+	return nil
 }
 
 func (store MissionFocusStore) missionEventIDs(domain, seed string) (artifactEventIDs, error) {

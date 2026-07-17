@@ -23,26 +23,28 @@ const (
 	createMessageOperation      = "messages.create"
 	controlResponseClass        = "agent-control-idempotency"
 	controlEventClass           = "event-payload"
-	controlCommandClass         = "command-payload"
-	controlMessageClass         = "conversation-message"
+	controlCommandClass         = "agent-run-command"
+	controlMessageClass         = "run-message"
 )
 
 // ControlService is the public Agent Control Plane application service. It
 // stages immutable encrypted payloads, then commits the domain mutation and
 // its replay response manifest under one durable idempotency transaction.
 type ControlService struct {
-	Pool                 *pgxpool.Pool
-	Store                RunStore
-	Payloads             payload.Store
-	IDKey                []byte
-	IdempotencyKeyPepper []byte
-	RequestDigestPepper  []byte
-	IdempotencyTTL       time.Duration
-	RunTimeout           time.Duration
-	RunMaxSteps          int
-	RunMaxCostMicrounits int64
-	RunMaxAttempts       int
-	Now                  func() time.Time
+	Pool                     *pgxpool.Pool
+	Store                    RunStore
+	Payloads                 payload.Store
+	IDKey                    []byte
+	IdempotencyKeyPepper     []byte
+	RequestDigestPepper      []byte
+	IdempotencyTTL           time.Duration
+	RunTimeout               time.Duration
+	RunMaxSteps              int
+	RunMaxCostMicrounits     int64
+	RunMaxAttempts           int
+	BehaviorEnvironment      string
+	MaximumCoachContextBytes int
+	Now                      func() time.Time
 }
 
 type controlPrepared struct {
@@ -165,9 +167,21 @@ func (service ControlService) CreateMessage(ctx context.Context, command executi
 	if err != nil {
 		return executionapi.MessageResult{}, executionapi.ErrDependencyUnavailable
 	}
-	binding, err := localStore.ResolveBehavior(ctx, command.TenantID, behavior.RoutePlanner, "production")
+	conversationMode, binding, err := service.resolveConversationBehavior(ctx, localStore, command.TenantID, command.UserID, command.ConversationID)
 	if err != nil {
 		return executionapi.MessageResult{}, service.mapError(err)
+	}
+	var coachContext *CoachContextSource
+	if binding.Profile == behavior.Coach {
+		contextID, contextIDErr := ids.DeterministicUUID(service.IDKey, "coach-context", prepared.recordID)
+		if contextIDErr != nil {
+			return executionapi.MessageResult{}, executionapi.ErrDependencyUnavailable
+		}
+		contextSource, contextErr := service.prepareCoachContext(ctx, localStore, command.TenantID, command.UserID, command.ConversationID, contextID)
+		if contextErr != nil {
+			return executionapi.MessageResult{}, service.mapError(contextErr)
+		}
+		coachContext = &contextSource
 	}
 	now := localStore.Now()
 	dueAt := now.Add(service.RunTimeout)
@@ -175,11 +189,15 @@ func (service ControlService) CreateMessage(ctx context.Context, command executi
 	if err != nil {
 		return executionapi.MessageResult{}, service.mapError(err)
 	}
-	messagePayload, err := service.putJSON(ctx, command.TenantID, messageID, controlMessageClass, map[string]any{"content": command.Content, "mode": command.Mode})
+	messageDocument, err := json.Marshal(map[string]any{"schema_version": 1, "role": "user", "content": []map[string]any{{"type": "text", "text": command.Content}}})
 	if err != nil {
 		return executionapi.MessageResult{}, executionapi.ErrDependencyUnavailable
 	}
-	contentDigest := sha256.Sum256([]byte(command.Content))
+	messagePayload, err := service.putEncoded(ctx, command.TenantID, messageID, controlMessageClass, messageDocument)
+	if err != nil {
+		return executionapi.MessageResult{}, executionapi.ErrDependencyUnavailable
+	}
+	contentDigest := sha256.Sum256(messageDocument)
 	contentHash := hex.EncodeToString(contentDigest[:])
 	messageEvent, err := service.putJSON(ctx, command.TenantID, messageIDs.event, controlEventClass, map[string]any{
 		"subject_id": command.ConversationID, "subject_version": command.ExpectedConversationVersion + 1,
@@ -209,13 +227,7 @@ func (service ControlService) CreateMessage(ctx context.Context, command executi
 		return executionapi.MessageResult{}, executionapi.ErrDependencyUnavailable
 	}
 	budget := json.RawMessage(mustControlJSON(map[string]any{"max_steps": service.RunMaxSteps, "max_cost_microunits": service.RunMaxCostMicrounits}))
-	startCommand, err := service.putJSON(ctx, command.TenantID, runIDs.startCommand, controlCommandClass, map[string]any{
-		"run_id": runID, "conversation_id": command.ConversationID, "message_id": messageID,
-		"message_ref": messagePayload.Ref, "message_hash": messagePayload.Hash, "content_hash": contentHash,
-		"admission_mode": command.Mode, "behavior_profile": binding.Profile, "behavior_environment": binding.Environment,
-		"profile_snapshot_id": binding.SnapshotID, "behavior_channel_id": binding.ChannelID, "behavior_channel_sequence": binding.Sequence,
-		"budget_snapshot": json.RawMessage(budget),
-	})
+	startCommand, err := service.putJSON(ctx, command.TenantID, runIDs.startCommand, controlCommandClass, map[string]any{"schema_version": 1, "run_id": runID, "correlation_id": correlationID})
 	if err != nil {
 		return executionapi.MessageResult{}, executionapi.ErrDependencyUnavailable
 	}
@@ -231,13 +243,13 @@ func (service ControlService) CreateMessage(ctx context.Context, command executi
 		stored, storeErr := localStore.AcceptMessageRunInTx(ctx, tx, AcceptMessageRunCommand{
 			Run: AcceptRunCommand{
 				RunID: runID, TenantID: command.TenantID, UserID: command.UserID, ConversationID: command.ConversationID, CorrelationID: correlationID,
-				DueAt: dueAt, BehaviorProfile: behavior.RoutePlanner, BehaviorEnvironment: "production",
+				DueAt: dueAt, BehaviorProfile: binding.Profile, BehaviorEnvironment: binding.Environment,
 				ExpectedProfileSnapshotID: binding.SnapshotID, ExpectedBehaviorChannelID: binding.ChannelID, ExpectedBehaviorSequence: binding.Sequence,
 				BudgetSnapshot: budget, Actor: actor, AcceptedEvent: acceptedEvent, QueuedEvent: queuedEvent, StartCommand: startCommand,
 				QueueClass: service.queueClass(command.Mode), ResourceClass: "llm", Priority: service.priority(command.Mode), CostUnits: int64(service.RunMaxSteps), MaxAttempts: service.RunMaxAttempts,
 			},
-			MessageID: messageID, ExpectedConversationVersion: command.ExpectedConversationVersion,
-			Message: messagePayload, ContentHash: contentHash, AppendedEvent: messageEvent, Actor: actor,
+			MessageID: messageID, ExpectedConversationVersion: command.ExpectedConversationVersion, ExpectedConversationMode: conversationMode, ExpectedConversationProfile: binding.Profile,
+			Message: messagePayload, ContentHash: contentHash, AppendedEvent: messageEvent, CoachContext: coachContext, Actor: actor,
 		})
 		if storeErr != nil {
 			return idempotency.Response{}, storeErr
@@ -406,7 +418,51 @@ func (service ControlService) now() time.Time {
 }
 
 func (service ControlService) valid() bool {
-	return service.Pool != nil && service.Store.Pool != nil && service.Payloads != nil && len(service.IDKey) >= 32 && len(service.IdempotencyKeyPepper) >= 32 && len(service.RequestDigestPepper) >= 32 && service.IdempotencyTTL > 0 && service.RunTimeout > 0 && service.RunMaxSteps > 0 && service.RunMaxCostMicrounits > 0 && service.RunMaxAttempts > 0
+	return service.Pool != nil && service.Store.Pool != nil && service.Payloads != nil && len(service.IDKey) >= 32 && len(service.IdempotencyKeyPepper) >= 32 && len(service.RequestDigestPepper) >= 32 && service.IdempotencyTTL > 0 && service.RunTimeout > 0 && service.RunMaxSteps > 0 && service.RunMaxCostMicrounits > 0 && service.RunMaxAttempts > 0 && service.maximumCoachContextBytes() >= 64<<10 && service.maximumCoachContextBytes() <= 4<<20 && (service.BehaviorEnvironment == "staging" || service.BehaviorEnvironment == "production")
+}
+
+func (service ControlService) resolveConversationBehavior(ctx context.Context, store RunStore, tenantID, userID, conversationID string) (string, behavior.ChannelBinding, error) {
+	tx, err := service.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return "", behavior.ChannelBinding{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, tenantID); err != nil {
+		return "", behavior.ChannelBinding{}, err
+	}
+	var mode string
+	err = tx.QueryRow(ctx, `SELECT mode FROM agent.conversations WHERE tenant_id=$1 AND user_id=$2 AND id=$3 AND status='active'`, tenantID, userID, conversationID).Scan(&mode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", behavior.ChannelBinding{}, ErrRunConflict
+	}
+	if err != nil {
+		return "", behavior.ChannelBinding{}, err
+	}
+	profile, ok := behaviorForConversationMode(mode)
+	if !ok {
+		return "", behavior.ChannelBinding{}, ErrRunConflict
+	}
+	binding, err := store.Behavior.ResolveCurrent(ctx, tx, tenantID, profile, service.BehaviorEnvironment)
+	if err != nil {
+		return "", behavior.ChannelBinding{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", behavior.ChannelBinding{}, err
+	}
+	return mode, binding, nil
+}
+
+func behaviorForConversationMode(mode string) (behavior.Profile, bool) {
+	switch mode {
+	case "coach":
+		return behavior.Coach, true
+	case "task":
+		return behavior.DailyPlanner, true
+	case "project":
+		return behavior.ArtifactBuilder, true
+	default:
+		return "", false
+	}
 }
 
 func (service ControlService) putJSON(ctx context.Context, tenantID, objectID, class string, value any) (PayloadPointer, error) {
@@ -414,6 +470,10 @@ func (service ControlService) putJSON(ctx context.Context, tenantID, objectID, c
 	if err != nil {
 		return PayloadPointer{}, err
 	}
+	return service.putEncoded(ctx, tenantID, objectID, class, encoded)
+}
+
+func (service ControlService) putEncoded(ctx context.Context, tenantID, objectID, class string, encoded []byte) (PayloadPointer, error) {
 	manifest, err := service.Payloads.Put(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: objectID, Class: class, ContentType: "application/json"}, encoded)
 	if err != nil {
 		return PayloadPointer{}, err

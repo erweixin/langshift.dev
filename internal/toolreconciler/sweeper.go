@@ -95,25 +95,26 @@ type attemptExpiredEvidence struct {
 // the reconciliation worker. Every registry and effect identity is bound to
 // the exact terminal ToolCall version that created the command.
 type CommandPayload struct {
-	SchemaVersion        int       `json:"schema_version"`
-	TenantID             string    `json:"tenant_id"`
-	RunID                string    `json:"run_id"`
-	ToolCallID           string    `json:"tool_call_id"`
-	EffectID             string    `json:"effect_id"`
-	ToolName             string    `json:"tool_name"`
-	DescriptorSnapshotID string    `json:"descriptor_snapshot_id"`
-	DescriptorHash       string    `json:"descriptor_hash"`
-	EffectClass          string    `json:"effect_class"`
-	EffectKey            string    `json:"effect_key"`
-	EffectScope          string    `json:"effect_scope"`
-	ProviderID           string    `json:"provider_id"`
-	ProviderRequestID    string    `json:"provider_request_id"`
-	RequestHash          string    `json:"request_hash"`
-	TerminalToolVersion  uint64    `json:"terminal_tool_version"`
-	ReconciliationDueAt  time.Time `json:"reconciliation_due_at"`
-	OutcomeUnknownAt     time.Time `json:"outcome_unknown_at"`
-	ReconciliationRound  int       `json:"reconciliation_round"`
-	CorrelationID        string    `json:"correlation_id"`
+	SchemaVersion        int              `json:"schema_version"`
+	TenantID             string           `json:"tenant_id"`
+	RunID                string           `json:"run_id"`
+	ToolCallID           string           `json:"tool_call_id"`
+	EffectID             string           `json:"effect_id"`
+	ToolName             string           `json:"tool_name"`
+	DescriptorSnapshotID string           `json:"descriptor_snapshot_id"`
+	DescriptorHash       string           `json:"descriptor_hash"`
+	Input                payload.Manifest `json:"input"`
+	EffectClass          string           `json:"effect_class"`
+	EffectKey            string           `json:"effect_key"`
+	EffectScope          string           `json:"effect_scope"`
+	ProviderID           string           `json:"provider_id"`
+	ProviderRequestID    string           `json:"provider_request_id"`
+	RequestHash          string           `json:"request_hash"`
+	TerminalToolVersion  uint64           `json:"terminal_tool_version"`
+	ReconciliationDueAt  time.Time        `json:"reconciliation_due_at"`
+	OutcomeUnknownAt     time.Time        `json:"outcome_unknown_at"`
+	ReconciliationRound  int              `json:"reconciliation_round"`
+	CorrelationID        string           `json:"correlation_id"`
 }
 
 func (sweeper Sweeper) RunOnce(ctx context.Context) (Result, error) {
@@ -211,7 +212,7 @@ func (sweeper Sweeper) sweep(ctx context.Context, candidate executionpostgres.Ex
 		if idErr != nil {
 			return idErr
 		}
-		reconcile := CommandPayload{SchemaVersion: 1, TenantID: candidate.TenantID, RunID: candidate.RunID, ToolCallID: candidate.ToolCallID, EffectID: candidate.EffectID, ToolName: candidate.ToolName, DescriptorSnapshotID: candidate.DescriptorSnapshotID, DescriptorHash: source.DescriptorHash, EffectClass: candidate.EffectClass, EffectKey: candidate.EffectKey, EffectScope: candidate.EffectScope, ProviderID: candidate.ProviderID, ProviderRequestID: candidate.ProviderRequestID, RequestHash: candidate.ToolRequestHash, TerminalToolVersion: terminalToolVersion, ReconciliationDueAt: dueAt, OutcomeUnknownAt: now, ReconciliationRound: 1, CorrelationID: correlationID}
+		reconcile := CommandPayload{SchemaVersion: 1, TenantID: candidate.TenantID, RunID: candidate.RunID, ToolCallID: candidate.ToolCallID, EffectID: candidate.EffectID, ToolName: candidate.ToolName, DescriptorSnapshotID: candidate.DescriptorSnapshotID, DescriptorHash: source.DescriptorHash, Input: source.Input, EffectClass: candidate.EffectClass, EffectKey: candidate.EffectKey, EffectScope: candidate.EffectScope, ProviderID: candidate.ProviderID, ProviderRequestID: candidate.ProviderRequestID, RequestHash: candidate.ToolRequestHash, TerminalToolVersion: terminalToolVersion, ReconciliationDueAt: dueAt, OutcomeUnknownAt: now, ReconciliationRound: 1, CorrelationID: correlationID}
 		reconcilePointer, _, putErr := sweeper.putJSON(ctx, candidate.TenantID, reconcileCommandID, "tool-reconciliation-command", reconcile)
 		if putErr != nil {
 			return putErr
@@ -236,19 +237,20 @@ func (sweeper Sweeper) sweep(ctx context.Context, candidate executionpostgres.Ex
 }
 
 type sourceCommandBinding struct {
-	SchemaVersion        int    `json:"schema_version"`
-	ToolCallID           string `json:"tool_call_id"`
-	RunID                string `json:"run_id"`
-	UserID               string `json:"user_id"`
-	CorrelationID        string `json:"correlation_id"`
-	ToolName             string `json:"tool_name"`
-	DescriptorSnapshotID string `json:"descriptor_snapshot_id"`
-	DescriptorHash       string `json:"descriptor_hash"`
-	RequestHash          string `json:"request_hash"`
-	EffectClass          string `json:"effect_class"`
-	EffectKey            string `json:"effect_key"`
-	EffectScope          string `json:"effect_scope"`
-	ProviderID           string `json:"provider_id"`
+	SchemaVersion        int              `json:"schema_version"`
+	ToolCallID           string           `json:"tool_call_id"`
+	RunID                string           `json:"run_id"`
+	UserID               string           `json:"user_id"`
+	CorrelationID        string           `json:"correlation_id"`
+	ToolName             string           `json:"tool_name"`
+	DescriptorSnapshotID string           `json:"descriptor_snapshot_id"`
+	DescriptorHash       string           `json:"descriptor_hash"`
+	Input                payload.Manifest `json:"input"`
+	RequestHash          string           `json:"request_hash"`
+	EffectClass          string           `json:"effect_class"`
+	EffectKey            string           `json:"effect_key"`
+	EffectScope          string           `json:"effect_scope"`
+	ProviderID           string           `json:"provider_id"`
 }
 
 func (sweeper Sweeper) loadSourceCommand(ctx context.Context, candidate executionpostgres.ExpiredToolEffectCandidate) (sourceCommandBinding, error) {
@@ -260,7 +262,7 @@ func (sweeper Sweeper) loadSourceCommand(ctx context.Context, candidate executio
 		return sourceCommandBinding{}, errors.Join(err, ErrConfiguration)
 	}
 	var source sourceCommandBinding
-	if json.Unmarshal(encoded, &source) != nil || source.SchemaVersion != 1 || source.ToolCallID != candidate.ToolCallID || source.RunID != candidate.RunID || source.UserID != candidate.UserID || source.CorrelationID == "" || source.ToolName != candidate.ToolName || source.DescriptorSnapshotID != candidate.DescriptorSnapshotID || !sha256Pattern.MatchString(source.DescriptorHash) || source.RequestHash != candidate.ToolRequestHash || source.EffectClass != candidate.EffectClass || source.EffectKey != candidate.EffectKey || source.EffectScope != candidate.EffectScope || source.ProviderID != candidate.ProviderID {
+	if json.Unmarshal(encoded, &source) != nil || source.SchemaVersion != 1 || source.ToolCallID != candidate.ToolCallID || source.RunID != candidate.RunID || source.UserID != candidate.UserID || source.CorrelationID == "" || source.ToolName != candidate.ToolName || source.DescriptorSnapshotID != candidate.DescriptorSnapshotID || !sha256Pattern.MatchString(source.DescriptorHash) || source.Input.Ref == "" || source.Input.Hash == "" || source.RequestHash != candidate.ToolRequestHash || source.EffectClass != candidate.EffectClass || source.EffectKey != candidate.EffectKey || source.EffectScope != candidate.EffectScope || source.ProviderID != candidate.ProviderID {
 		return sourceCommandBinding{}, ErrConfiguration
 	}
 	return source, nil

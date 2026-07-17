@@ -1,0 +1,112 @@
+{
+  "amendmentVersion": "1.18.0",
+  "baseContractVersion": "1.17.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "submissions.create.v2": {
+      "method": "POST",
+      "path": "/v1/submissions",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.submission-create.v2+json",
+      "requestSchema": "SubmissionCreateRequestV2",
+      "responseContentType": "application/vnd.lites.submission.v2+json",
+      "responseSchema": "SubmissionResponseV2",
+      "concurrency": "If-Match must equal expected_task_version; immutable submission, DailyTask submitted transition and event commit atomically."
+    },
+    "reviews.generate.v2": {
+      "method": "POST",
+      "path": "/v1/reviews",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.review-generate.v2+json",
+      "requestSchema": "ReviewGenerateRequestV2",
+      "responseContentType": "application/vnd.lites.review-generation.v2+json",
+      "responseSchema": "ReviewGenerationResponseV2",
+      "concurrency": "If-Match must equal expected_task_version; exact submission revision and active rubric revision are pinned to the Evaluator Run."
+    },
+    "reviews.get.v2": {
+      "method": "GET",
+      "path": "/v1/reviews/{review_id}",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "responseContentType": "application/vnd.lites.review.v2+json",
+      "responseSchema": "ReviewResourceV2",
+      "cachePolicy": "private_no_store"
+    },
+    "evidence.list.v2": {
+      "method": "GET", "path": "/v1/capability-evidence", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope",
+      "optionalQuery": ["cursor"], "responseContentType": "application/vnd.lites.evidence-list.v2+json", "responseSchema": "EvidenceListResponseV2", "cachePolicy": "private_no_store"
+    },
+    "evidence.record.v2": {
+      "method": "POST", "path": "/v1/capability-evidence", "authentication": "gateway_signed_session", "authorization": "tenant_user_owner_scope", "csrf": "required",
+      "idempotency": "required_encrypted_durable_response", "requestContentType": "application/vnd.lites.evidence-record.v2+json", "requestSchema": "EvidenceRecordRequestV2",
+      "responseContentType": "application/vnd.lites.evidence.v2+json", "responseSchema": "EvidenceMutationResponseV2",
+      "safety": "Records immutable evidence only; never upgrades a capability claim without a separate claim revision."
+    }
+  },
+  "schemas": {
+    "SubmissionCreateRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "daily_task_id", "expected_task_version", "submission_kind", "content", "understanding"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "daily_task_id": {"type": "string", "format": "uuid"},
+        "expected_task_version": {"type": "integer", "minimum": 1},
+        "submission_kind": {"enum": ["code", "writing", "design"]},
+        "content": {"type": "string", "minLength": 1, "maxLength": 500000},
+        "understanding": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "SubmissionResponseV2": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "submission_revision", "daily_task_id", "daily_task_version", "status", "updated_at", "event_id", "replayed"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"}, "version": {"type": "integer", "minimum": 1},
+        "submission_revision": {"type": "integer", "minimum": 1}, "daily_task_id": {"type": "string", "format": "uuid"},
+        "daily_task_version": {"type": "integer", "minimum": 2}, "status": {"const": "submitted"},
+        "updated_at": {"type": "string", "format": "date-time"}, "event_id": {"type": "string", "format": "uuid"}, "replayed": {"type": "boolean"}
+      }
+    },
+    "ReviewGenerateRequestV2": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_id", "submission_id", "rubric_version_id", "expected_submission_revision", "expected_task_version"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256}, "submission_id": {"type": "string", "format": "uuid"},
+        "rubric_version_id": {"type": "string", "format": "uuid"}, "expected_submission_revision": {"type": "integer", "minimum": 1},
+        "expected_task_version": {"type": "integer", "minimum": 1}
+      }
+    },
+    "ReviewGenerationResponseV2": {
+      "type": "object", "additionalProperties": false,
+      "required": ["generation_id", "run_id", "status", "accepted_at", "replayed"],
+      "properties": {
+        "generation_id": {"type": "string", "format": "uuid"}, "run_id": {"type": "string", "format": "uuid"},
+        "status": {"enum": ["accepted", "queued"]}, "accepted_at": {"type": "string", "format": "date-time"}, "replayed": {"type": "boolean"}
+      }
+    },
+    "ReviewResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "submission_id", "rubric_version_id", "daily_task_id", "submission_revision", "status", "evidence_id", "review", "reviewed_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"}, "version": {"type": "integer", "minimum": 1},
+        "submission_id": {"type": "string", "format": "uuid"}, "rubric_version_id": {"type": "string", "format": "uuid"},
+        "daily_task_id": {"type": "string", "format": "uuid"}, "submission_revision": {"type": "integer", "minimum": 1},
+        "status": {"const": "completed"}, "evidence_id": {"type": "string", "format": "uuid"},
+        "review": {"type": "object"}, "reviewed_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "EvidenceRecordRequestV2": {"type":"object","additionalProperties":false,"required":["request_id","mission_id","evidence_type","source_kind","source_id","content","content_hash"],"properties":{"request_id":{"type":"string","minLength":8,"maxLength":256},"mission_id":{"type":"string","format":"uuid"},"evidence_type":{"type":"string","minLength":1,"maxLength":128},"source_kind":{"enum":["user_note","artifact","test_result"]},"source_id":{"type":["string","null"],"format":"uuid"},"content":{"type":"string","minLength":1,"maxLength":100000},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},
+    "EvidenceResourceV2": {"type":"object","additionalProperties":false,"required":["id","version","mission_id","evidence_type","status","source_kind","source_id","content","plaintext_hash","recorded_at"],"properties":{"id":{"type":"string","format":"uuid"},"version":{"type":"integer","minimum":1},"mission_id":{"type":"string","format":"uuid"},"evidence_type":{"type":"string"},"status":{"enum":["recorded","verified","disputed","invalidated"]},"source_kind":{"type":"string"},"source_id":{"type":["string","null"],"format":"uuid"},"content":{"type":"object"},"plaintext_hash":{"type":"string"},"recorded_at":{"type":"string","format":"date-time"}}},
+    "EvidenceListResponseV2": {"type":"object","additionalProperties":false,"required":["items","next_cursor"],"properties":{"items":{"type":"array","items":{"$ref":"#/schemas/EvidenceResourceV2"}},"next_cursor":{"type":["string","null"]}}},
+    "EvidenceMutationResponseV2": {"type":"object","additionalProperties":false,"required":["id","version","status","updated_at","event_id","replayed"],"properties":{"id":{"type":"string","format":"uuid"},"version":{"type":"integer","minimum":1},"status":{"const":"recorded"},"updated_at":{"type":"string","format":"date-time"},"event_id":{"type":"string","format":"uuid"},"replayed":{"type":"boolean"}}}
+    }
+  
+}

@@ -128,3 +128,23 @@ func TestDispatchBrokerUsesWorkerVisibleSubject(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProductCommandsHaveStableDistinctSubjects(t *testing.T) {
+	expected := map[string]string{
+		"DeliverReminder":        "lites.commands.product.deliver-reminder",
+		"GenerateMissionRoute":   "lites.commands.product.generate-mission-route",
+		"RoutePlanningRequested": "lites.commands.product.route-planning-requested",
+		"GenerateDailyTask":      "lites.commands.product.generate-daily-task",
+	}
+	seen := map[string]struct{}{}
+	for commandType, want := range expected {
+		subject, err := SubjectFor(commandType)
+		if err != nil || subject != want {
+			t.Fatalf("SubjectFor(%q) = %q, %v", commandType, subject, err)
+		}
+		if _, duplicate := seen[subject]; duplicate {
+			t.Fatalf("duplicate product command subject %q", subject)
+		}
+		seen[subject] = struct{}{}
+	}
+}

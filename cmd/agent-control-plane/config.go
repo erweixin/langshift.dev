@@ -27,8 +27,9 @@ type config struct {
 	vaultAddress, vaultNamespace, vaultMount, vaultTokenFile, vaultCAFile                 string
 	vaultCertFile, vaultKeyFile, vaultTLSName, vaultKeyPrefix                             string
 	environment, serviceVersion, region                                                   string
+	behaviorEnvironment                                                                   string
 	otlpEndpoint, otlpCAFile, otlpCertFile, otlpKeyFile, otlpTLSName, otlpBearerTokenFile string
-	databaseMaxConnections, runMaxSteps, runMaxAttempts                                   int
+	databaseMaxConnections, runMaxSteps, runMaxAttempts, maximumCoachContextBytes         int
 	runMaxCostMicrounits                                                                  int64
 	idempotencyTTL, runTimeout, leaseTTL                                                  time.Duration
 	traceSampleRatio                                                                      float64
@@ -65,6 +66,10 @@ func loadConfig() (config, error) {
 		return config{}, err
 	}
 	runMaxAttempts, err := optionalInt("RUN_MAX_ATTEMPTS", 5)
+	if err != nil {
+		return config{}, err
+	}
+	maximumCoachContextBytes, err := optionalInt("COACH_CONTEXT_MAX_BYTES", 2<<20)
 	if err != nil {
 		return config{}, err
 	}
@@ -108,8 +113,9 @@ func loadConfig() (config, error) {
 		s3Region:         os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), s3PathStyle: pathStyle, payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: env("S3_PAYLOAD_PREFIX", "restricted"), s3Encryption: types.ServerSideEncryption(env("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"),
 		vaultAddress: os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: env("VAULT_PAYLOAD_KEY_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: env("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"),
 		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"),
-		otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"),
-		idempotencyTTL: idempotencyTTL, runTimeout: runTimeout, leaseTTL: leaseTTL, runMaxSteps: runMaxSteps, runMaxAttempts: runMaxAttempts, runMaxCostMicrounits: runMaxCost,
+		behaviorEnvironment: env("CONTROL_BEHAVIOR_ENVIRONMENT", "production"),
+		otlpEndpoint:        os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"),
+		idempotencyTTL: idempotencyTTL, runTimeout: runTimeout, leaseTTL: leaseTTL, runMaxSteps: runMaxSteps, runMaxAttempts: runMaxAttempts, runMaxCostMicrounits: runMaxCost, maximumCoachContextBytes: maximumCoachContextBytes,
 		traceSampleRatio: traceRatio, allowInsecureDevelopment: allow,
 	}
 	return value, value.validate()
@@ -122,7 +128,7 @@ func (value config) validate() error {
 			return errors.New("required agent control-plane configuration is missing")
 		}
 	}
-	if value.listenAddress == value.healthAddress || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 256 || value.runMaxSteps < 1 || value.runMaxSteps > 10000 || value.runMaxAttempts < 1 || value.runMaxAttempts > 100 || value.runMaxCostMicrounits < 1 || value.idempotencyTTL < time.Hour || value.idempotencyTTL > 7*24*time.Hour || value.runTimeout < time.Minute || value.runTimeout > 24*time.Hour || value.leaseTTL < 10*time.Second || value.leaseTTL > 10*time.Minute || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.serverCertificateFile != "" && value.serverClientCAFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
+	if value.listenAddress == value.healthAddress || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 256 || value.runMaxSteps < 1 || value.runMaxSteps > 10000 || value.runMaxAttempts < 1 || value.runMaxAttempts > 100 || value.runMaxCostMicrounits < 1 || value.maximumCoachContextBytes < 64<<10 || value.maximumCoachContextBytes > 4<<20 || value.idempotencyTTL < time.Hour || value.idempotencyTTL > 7*24*time.Hour || value.runTimeout < time.Minute || value.runTimeout > 24*time.Hour || value.leaseTTL < 10*time.Second || value.leaseTTL > 10*time.Minute || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || value.behaviorEnvironment != "staging" && value.behaviorEnvironment != "production" || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.serverCertificateFile != "" && value.serverClientCAFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return errors.New("agent control-plane configuration is invalid")
 	}
 	if value.s3Encryption == types.ServerSideEncryptionAwsKms && value.s3KMSKeyID == "" {

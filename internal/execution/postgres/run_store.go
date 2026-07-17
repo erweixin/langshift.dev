@@ -41,6 +41,11 @@ type AcceptRunCommand struct {
 	ExpectedProfileSnapshotID string
 	ExpectedBehaviorChannelID string
 	ExpectedBehaviorSequence  uint64
+	// PinnedBehaviorBinding is reserved for internal durable orchestrators
+	// replaying an already-frozen behavior deployment. Public admissions leave
+	// it false and continue resolving the current deployment under the channel
+	// promotion advisory lock.
+	PinnedBehaviorBinding     bool
 	BudgetSnapshot            json.RawMessage
 	Actor                     json.RawMessage
 	AcceptedEvent             PayloadPointer
@@ -220,6 +225,23 @@ func (store RunStore) resolveBehavior(ctx context.Context, tx pgx.Tx, command Ac
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return behavior.ChannelBinding{}, err
+	}
+	if command.PinnedBehaviorBinding {
+		binding := behavior.ChannelBinding{
+			SnapshotID:  command.ExpectedProfileSnapshotID,
+			Profile:     command.BehaviorProfile,
+			Environment: command.BehaviorEnvironment,
+			ChannelID:   command.ExpectedBehaviorChannelID,
+			Sequence:    command.ExpectedBehaviorSequence,
+		}
+		err = tx.QueryRow(ctx, `SELECT activated_at FROM agent.behavior_channel_deployments WHERE tenant_id=$1 AND channel_id=$2 AND sequence=$3 AND snapshot_id=$4 AND profile_name=$5 AND environment=$6`, command.TenantID, binding.ChannelID, binding.Sequence, binding.SnapshotID, binding.Profile, binding.Environment).Scan(&binding.ActivatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return behavior.ChannelBinding{}, ErrRunConflict
+		}
+		if err != nil {
+			return behavior.ChannelBinding{}, err
+		}
+		return binding, nil
 	}
 	binding, err := store.Behavior.ResolveCurrent(ctx, tx, command.TenantID, command.BehaviorProfile, command.BehaviorEnvironment)
 	if err != nil {

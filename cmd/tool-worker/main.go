@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,6 +25,7 @@ import (
 	"github.com/langshift/lites/internal/eventstore/epoch"
 	eventpostgres "github.com/langshift/lites/internal/eventstore/postgres"
 	executionpostgres "github.com/langshift/lites/internal/execution/postgres"
+	"github.com/langshift/lites/internal/malware/clamav"
 	"github.com/langshift/lites/internal/objectstore/s3store"
 	"github.com/langshift/lites/internal/observability"
 	"github.com/langshift/lites/internal/payload"
@@ -128,6 +130,8 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("configure object store")
 	}
 	blobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 32 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
+	artifacts := s3store.Store{Client: s3Client, Bucket: configuration.artifactBucket, Prefix: configuration.artifactPrefix, MaxBytes: configuration.artifactMaxBytes, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
+	artifactScanner := clamav.Scanner{Address: configuration.clamavAddress, Dialer: &net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}, MaxBytes: configuration.artifactMaxBytes, Timeout: configuration.artifactScanTimeout}
 	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecure})
 	if err != nil {
 		return errors.New("configure Vault")
@@ -161,12 +165,13 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	issuer := &sessionrequest.Issuer{Store: sessionStore, Issuer: configuration.capabilityIssuer, Audience: configuration.capabilityAudience, KeyID: configuration.capabilityKeyID, PrivateKey: ed25519.PrivateKey(privateKeyBytes), TTL: configuration.capabilityTTL}
 	scratch := firecracker.RateLimit{Bandwidth: firecracker.TokenBucket{Size: configuration.scratchBandwidthSize, RefillMillis: configuration.scratchRefillMillis, Burst: configuration.scratchBandwidthBurst}, Operations: firecracker.TokenBucket{Size: configuration.scratchOperationsSize, RefillMillis: configuration.scratchRefillMillis, Burst: configuration.scratchOperationsBurst}}
 	broker := &toolworker.PostgresSandboxBroker{Pool: agentPool, PlacementPool: runtimePool, Issuer: issuer, Payloads: payloads, Endpoints: endpoints, HTTPClient: hostHTTP, AllowInsecureDevelopment: configuration.allowInsecure, ProvisionTokenPepper: runtimePepper, ProvisionTokenDerivationKey: provisionKey, MachineIdentityKey: machineKey, Actor: actor, ScratchRate: scratch}
-	production, err := toolworker.NewProductionRuntime(toolworker.ProductionConfig{ArtifactPath: configuration.artifactPath, ArtifactFileHash: configuration.artifactHash, Pool: agentPool, Payloads: payloads, Tools: runStore, SandboxBroker: broker, SandboxCleanupTimeout: configuration.cleanupTimeout, ConsumerName: configuration.consumerName, WorkerID: configuration.workerID, Actor: actor, IDKey: executionIDKey, HeartbeatInterval: configuration.toolHeartbeat, MaximumCommand: configuration.maximumCommand, MaximumInput: configuration.maximumInput, MaximumResult: configuration.maximumResult, Resume: toolworker.Schedule{QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 4, MaxAttempts: 5}, Reconcile: toolworker.Schedule{QueueClass: "background", ResourceClass: "tool-reconciliation", Priority: 40, CostUnits: 1, MaxAttempts: 20}, DefaultReconcileAfter: time.Minute, Metrics: telemetry.AgentMetrics()})
+	artifactExport := toolworker.ArtifactExportHandler{Authorizer: toolworker.PostgresArtifactExportAuthorizer{Pool: agentPool}, Scanner: artifactScanner, Objects: artifacts, MaxBytes: configuration.artifactMaxBytes}
+	production, err := toolworker.NewProductionRuntime(toolworker.ProductionConfig{ArtifactPath: configuration.artifactPath, ArtifactFileHash: configuration.artifactHash, Pool: agentPool, Payloads: payloads, Tools: runStore, Registrations: []toolworker.HandlerRegistration{{Name: "artifact_export", Handler: artifactExport}}, SandboxBroker: broker, SandboxCleanupTimeout: configuration.cleanupTimeout, ConsumerName: configuration.consumerName, WorkerID: configuration.workerID, Actor: actor, IDKey: executionIDKey, HeartbeatInterval: configuration.toolHeartbeat, MaximumCommand: configuration.maximumCommand, MaximumInput: configuration.maximumInput, MaximumResult: configuration.maximumResult, Resume: toolworker.Schedule{QueueClass: "interactive", ResourceClass: "llm", Priority: 50, CostUnits: 4, MaxAttempts: 5}, Reconcile: toolworker.Schedule{QueueClass: "background", ResourceClass: "tool-reconciliation", Priority: 40, CostUnits: 1, MaxAttempts: 20}, DefaultReconcileAfter: time.Minute, Metrics: telemetry.AgentMetrics()})
 	if err != nil {
 		return fmt.Errorf("compose production ToolWorker: %w", err)
 	}
 	dependencyCtx, dependencyCancel := context.WithTimeout(parent, 5*time.Second)
-	dependencyErr := dependenciesReady(dependencyCtx, agentPool, runtimePool, connection, js, authority, storeEpoch, blobs.Ready, vaultReader.Ready)
+	dependencyErr := dependenciesReady(dependencyCtx, agentPool, runtimePool, connection, js, authority, storeEpoch, blobs.Ready, artifacts.Ready, artifactScanner.Ready, vaultReader.Ready)
 	dependencyCancel()
 	if dependencyErr != nil {
 		return errors.New("ToolWorker dependency is not ready")
@@ -179,7 +184,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	}}
 	ready := &atomic.Bool{}
 	ready.Store(true)
-	health := healthServer(configuration.healthAddress, ready, agentPool, runtimePool, connection, js, authority, storeEpoch, blobs.Ready, vaultReader.Ready, telemetry.MetricsHandler())
+	health := healthServer(configuration.healthAddress, ready, agentPool, runtimePool, connection, js, authority, storeEpoch, blobs.Ready, artifacts.Ready, artifactScanner.Ready, vaultReader.Ready, telemetry.MetricsHandler())
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	errs := make(chan error, 2)
@@ -301,7 +306,7 @@ func dependenciesReady(ctx context.Context, agentPool, runtimePool *pgxpool.Pool
 	return nil
 }
 
-func healthServer(address string, ready *atomic.Bool, agentPool, runtimePool *pgxpool.Pool, connection *nats.Conn, js jetstream.JetStream, authority epoch.HTTPAuthority, expectedEpoch string, blobReady, vaultReady readiness, metrics http.Handler) *http.Server {
+func healthServer(address string, ready *atomic.Bool, agentPool, runtimePool *pgxpool.Pool, connection *nats.Conn, js jetstream.JetStream, authority epoch.HTTPAuthority, expectedEpoch string, blobReady, artifactReady, scannerReady, vaultReady readiness, metrics http.Handler) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics)
 	mux.HandleFunc("GET /live", func(writer http.ResponseWriter, _ *http.Request) {
@@ -312,7 +317,7 @@ func healthServer(address string, ready *atomic.Bool, agentPool, runtimePool *pg
 		writer.Header().Set("Cache-Control", "no-store")
 		ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
 		defer cancel()
-		if !ready.Load() || dependenciesReady(ctx, agentPool, runtimePool, connection, js, authority, expectedEpoch, blobReady, vaultReady) != nil {
+		if !ready.Load() || dependenciesReady(ctx, agentPool, runtimePool, connection, js, authority, expectedEpoch, blobReady, artifactReady, scannerReady, vaultReady) != nil {
 			http.Error(writer, "not ready", http.StatusServiceUnavailable)
 			return
 		}

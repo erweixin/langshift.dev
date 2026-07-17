@@ -18,7 +18,7 @@ func TestAcceptMessageRunValidationAndIdentifiers(t *testing.T) {
 			AcceptedEvent: pointerWithHash("accepted"), QueuedEvent: pointerWithHash("queued"), StartCommand: pointerWithHash("start"),
 			QueueClass: "interactive", ResourceClass: "llm", Priority: 100, CostUnits: 1, MaxAttempts: 5,
 		},
-		MessageID: "60000000-0000-4000-8000-000000000001", ExpectedConversationVersion: 1,
+		MessageID: "60000000-0000-4000-8000-000000000001", ExpectedConversationVersion: 1, ExpectedConversationMode: "coach", ExpectedConversationProfile: behavior.Coach,
 		Message: pointerWithHash("message"), ContentHash: hashValue("content"), AppendedEvent: pointerWithHash("appended"), Actor: actor,
 	}
 	if !validAcceptMessageRun(command) {
@@ -36,6 +36,19 @@ func TestAcceptMessageRunValidationAndIdentifiers(t *testing.T) {
 	command.ExpectedConversationVersion = 0
 	if validAcceptMessageRun(command) {
 		t.Fatal("zero Conversation version accepted")
+	}
+}
+
+func TestConversationModesSelectOnlyTheirProductionProfile(t *testing.T) {
+	tests := map[string]behavior.Profile{"coach": behavior.Coach, "task": behavior.DailyPlanner, "project": behavior.ArtifactBuilder}
+	for mode, expected := range tests {
+		profile, ok := behaviorForConversationMode(mode)
+		if !ok || profile != expected {
+			t.Fatalf("mode=%s profile=%s valid=%t", mode, profile, ok)
+		}
+	}
+	if profile, ok := behaviorForConversationMode("route_planner"); ok || profile != "" {
+		t.Fatalf("unsupported public mode selected profile=%s valid=%t", profile, ok)
 	}
 }
 

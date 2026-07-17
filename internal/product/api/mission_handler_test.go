@@ -102,9 +102,9 @@ func authenticatedMissionRequest(t *testing.T, method, target, contentType, body
 	request.Header.Set("Content-Type", contentType)
 	request.Header.Set(transport.IdempotencyHeader, key)
 	request.Header.Set("If-Match", etag)
-	request.Header.Set(transport.RequestIDHeader, "server-request-0001")
+	request.Header.Set(transport.RequestIDHeader, "c4000000-0000-4000-8000-000000000014")
 	fingerprint := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x41}, 32))
-	claims := trustedcontext.Claims{PrincipalKind: trustedcontext.AuthenticatedUser, Issuer: "gateway", Audience: "product-service", SubjectID: "c4000000-0000-4000-8000-000000000010", TenantID: "c4000000-0000-4000-8000-000000000011", MembershipID: "c4000000-0000-4000-8000-000000000012", SessionID: "c4000000-0000-4000-8000-000000000013", Roles: []string{"member"}, RequestID: "server-request-0001", RequestMethod: method, RequestTarget: target, ClientIPHash: fingerprint, UserAgentHash: fingerprint, CSRFVerified: csrf, IssuedAt: missionAPINow.Unix(), ExpiresAt: missionAPINow.Add(time.Minute).Unix(), Nonce: "nonce-1"}
+	claims := trustedcontext.Claims{PrincipalKind: trustedcontext.AuthenticatedUser, Issuer: "gateway", Audience: "product-service", SubjectID: "c4000000-0000-4000-8000-000000000010", TenantID: "c4000000-0000-4000-8000-000000000011", MembershipID: "c4000000-0000-4000-8000-000000000012", SessionID: "c4000000-0000-4000-8000-000000000013", Roles: []string{"member"}, RequestID: "c4000000-0000-4000-8000-000000000014", RequestMethod: method, RequestTarget: target, ClientIPHash: fingerprint, UserAgentHash: fingerprint, CSRFVerified: csrf, IssuedAt: missionAPINow.Unix(), ExpiresAt: missionAPINow.Add(time.Minute).Unix(), Nonce: "nonce-1"}
 	token, err := trustedcontext.Sign(claims, "key-1", privateKey, 2*time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,11 @@ func authenticatedMissionRequest(t *testing.T, method, target, contentType, body
 }
 
 func mutationFixture(id string, status mission.Status, version uint64, focusID string, focusVersion uint64) MissionMutationResult {
-	return MissionMutationResult{Mission: MissionResource{ID: id, Version: version, Status: status, TargetRoleProfileID: "c4000000-0000-4000-8000-000000000020", Focused: id == focusID, CreatedAt: missionAPINow.Add(-time.Hour), UpdatedAt: missionAPINow}, Focus: MissionFocus{MissionID: &focusID, Version: focusVersion}, EventIDs: []string{"c4000000-0000-4000-8000-000000000021"}}
+	var focused *string
+	if focusID != "" {
+		focused = &focusID
+	}
+	return MissionMutationResult{Mission: MissionResource{ID: id, Version: version, Status: status, TargetRoleProfileID: "c4000000-0000-4000-8000-000000000020", Focused: id == focusID && focusID != "", CreatedAt: missionAPINow.Add(-time.Hour), UpdatedAt: missionAPINow}, Focus: MissionFocus{MissionID: focused, Version: focusVersion}, EventIDs: []string{"c4000000-0000-4000-8000-000000000021"}}
 }
 
 func TestMutationResponseIsClosedJSON(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/url"
 	"path"
 	"regexp"
@@ -26,19 +27,27 @@ var (
 	ErrReference     = errors.New("s3 object reference is invalid")
 	ErrConflict      = errors.New("immutable s3 object already exists with different content")
 	ErrIntegrity     = errors.New("s3 object integrity verification failed")
+	ErrNotFound      = errors.New("s3 object was not found")
 	ErrTooLarge      = errors.New("s3 object exceeds configured size limit")
 )
 
 var (
 	bucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 	objectPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+	digestRE      = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 type API interface {
 	PutObject(context.Context, *s3.PutObjectInput, ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	GetObject(context.Context, *s3.GetObjectInput, ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+	HeadObject(context.Context, *s3.HeadObjectInput, ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
 	DeleteObject(context.Context, *s3.DeleteObjectInput, ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 	HeadBucket(context.Context, *s3.HeadBucketInput, ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
+}
+
+type VersionedObject struct {
+	Reference, VersionID, ContentHash, MediaType, ScanResultHash string
+	ByteSize                                                     int64
 }
 
 type Store struct {
@@ -100,6 +109,99 @@ func (store Store) Put(ctx context.Context, objectKey string, contents []byte) (
 		return "", ErrConflict
 	}
 	return ref, nil
+}
+
+// PutVersioned writes a scanned commercial Artifact into a bucket whose S3
+// versioning policy is enabled. Unlike encrypted payload storage, Artifact
+// provenance requires the provider-issued immutable VersionID; an unversioned
+// success is rejected rather than silently weakening the revision manifest.
+func (store Store) PutVersioned(ctx context.Context, objectKey, mediaType string, contents []byte) (VersionedObject, error) {
+	return store.putVersioned(ctx, objectKey, mediaType, contents, "")
+}
+
+// PutScannedVersioned binds the trusted malware-scan receipt to the immutable
+// object metadata so an outcome-unknown write can later be reconciled without
+// trusting a model or repeating the external effect.
+func (store Store) PutScannedVersioned(ctx context.Context, objectKey, mediaType string, contents []byte, scanResultHash string) (VersionedObject, error) {
+	if !digestRE.MatchString(scanResultHash) {
+		return VersionedObject{}, ErrConfiguration
+	}
+	return store.putVersioned(ctx, objectKey, mediaType, contents, scanResultHash)
+}
+
+func (store Store) putVersioned(ctx context.Context, objectKey, mediaType string, contents []byte, scanResultHash string) (VersionedObject, error) {
+	parsedType, parameters, mediaErr := mime.ParseMediaType(mediaType)
+	if err := store.validate(); err != nil || !validObjectKey(objectKey) || len(contents) == 0 || mediaErr != nil || parsedType != mediaType || len(parameters) != 0 {
+		return VersionedObject{}, ErrConfiguration
+	}
+	if int64(len(contents)) > store.MaxBytes {
+		return VersionedObject{}, ErrTooLarge
+	}
+	key := store.key(objectKey)
+	ref := store.reference(key)
+	digest := sha256.Sum256(contents)
+	digestHex := hex.EncodeToString(digest[:])
+	digestBase64 := base64.StdEncoding.EncodeToString(digest[:])
+	metadata := map[string]string{"lites-sha256": digestHex}
+	if scanResultHash != "" {
+		metadata["lites-scan-result-sha256"] = scanResultHash
+	}
+	input := &s3.PutObjectInput{Bucket: aws.String(store.Bucket), Key: aws.String(key), Body: bytes.NewReader(contents), ContentLength: aws.Int64(int64(len(contents))), ContentType: aws.String(mediaType), CacheControl: aws.String("private, no-store"), IfNoneMatch: aws.String("*"), ChecksumAlgorithm: types.ChecksumAlgorithmSha256, ChecksumSHA256: aws.String(digestBase64), Metadata: metadata, ServerSideEncryption: store.ServerSideEncryption}
+	if store.ServerSideEncryption == types.ServerSideEncryptionAwsKms {
+		input.SSEKMSKeyId = aws.String(store.KMSKeyID)
+		input.BucketKeyEnabled = aws.Bool(true)
+	}
+	output, err := store.Client.PutObject(ctx, input)
+	if err == nil {
+		if output == nil || aws.ToString(output.VersionId) == "" {
+			return VersionedObject{}, ErrIntegrity
+		}
+		return VersionedObject{Reference: ref, VersionID: aws.ToString(output.VersionId), ContentHash: digestHex, MediaType: mediaType, ByteSize: int64(len(contents)), ScanResultHash: scanResultHash}, nil
+	}
+	if !isConditionalConflict(err) {
+		return VersionedObject{}, err
+	}
+	existing, getErr := store.Get(ctx, ref)
+	if getErr != nil {
+		return VersionedObject{}, getErr
+	}
+	if !bytes.Equal(existing, contents) {
+		return VersionedObject{}, ErrConflict
+	}
+	head, headErr := store.Client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(store.Bucket), Key: aws.String(key)})
+	if headErr != nil {
+		return VersionedObject{}, headErr
+	}
+	if head == nil || aws.ToString(head.VersionId) == "" || aws.ToString(head.ContentType) != mediaType || aws.ToInt64(head.ContentLength) != int64(len(contents)) || !strings.EqualFold(head.Metadata["lites-sha256"], digestHex) || !strings.EqualFold(head.Metadata["lites-scan-result-sha256"], scanResultHash) {
+		return VersionedObject{}, ErrIntegrity
+	}
+	return VersionedObject{Reference: ref, VersionID: aws.ToString(head.VersionId), ContentHash: digestHex, MediaType: mediaType, ByteSize: int64(len(contents)), ScanResultHash: scanResultHash}, nil
+}
+
+// InspectScannedVersioned performs a strongly consistent metadata lookup for
+// the exact key that a provider request was authorized to create. It never
+// accepts an unversioned or partially bound object as evidence of success.
+func (store Store) InspectScannedVersioned(ctx context.Context, objectKey, mediaType, contentHash string, byteSize int64) (VersionedObject, error) {
+	parsedType, parameters, mediaErr := mime.ParseMediaType(mediaType)
+	if err := store.validate(); err != nil || !validObjectKey(objectKey) || mediaErr != nil || parsedType != mediaType || len(parameters) != 0 || !digestRE.MatchString(contentHash) || byteSize < 1 || byteSize > store.MaxBytes {
+		return VersionedObject{}, ErrConfiguration
+	}
+	key := store.key(objectKey)
+	head, err := store.Client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(store.Bucket), Key: aws.String(key)})
+	if err != nil {
+		if isNotFound(err) {
+			return VersionedObject{}, ErrNotFound
+		}
+		return VersionedObject{}, err
+	}
+	scanHash := ""
+	if head != nil {
+		scanHash = strings.ToLower(head.Metadata["lites-scan-result-sha256"])
+	}
+	if head == nil || aws.ToString(head.VersionId) == "" || aws.ToString(head.ContentType) != mediaType || aws.ToInt64(head.ContentLength) != byteSize || !strings.EqualFold(head.Metadata["lites-sha256"], contentHash) || !digestRE.MatchString(scanHash) {
+		return VersionedObject{}, ErrIntegrity
+	}
+	return VersionedObject{Reference: store.reference(key), VersionID: aws.ToString(head.VersionId), ContentHash: strings.ToLower(contentHash), MediaType: mediaType, ByteSize: byteSize, ScanResultHash: scanHash}, nil
 }
 
 func (store Store) Get(ctx context.Context, ref string) ([]byte, error) {
@@ -237,6 +339,14 @@ func isConditionalConflict(err error) bool {
 		return false
 	}
 	return apiErr.ErrorCode() == "PreconditionFailed" || apiErr.ErrorCode() == "ConditionalRequestConflict"
+}
+
+func isNotFound(err error) bool {
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.ErrorCode() == "NotFound" || apiErr.ErrorCode() == "NoSuchKey" || apiErr.ErrorCode() == "NoSuchObject"
 }
 
 func (store Store) String() string { return fmt.Sprintf("s3://%s/%s", store.Bucket, store.Prefix) }

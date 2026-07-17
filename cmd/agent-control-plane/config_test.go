@@ -26,12 +26,22 @@ func TestAgentControlConfigurationFailsClosedAndAllowsExplicitLoopbackDevelopmen
 		t.Setenv(name, value)
 	}
 	configuration, err := loadConfig()
-	if err != nil || !configuration.allowInsecureDevelopment || configuration.runMaxSteps != 64 || configuration.runMaxCostMicrounits != 500000 {
+	if err != nil || !configuration.allowInsecureDevelopment || configuration.runMaxSteps != 64 || configuration.runMaxCostMicrounits != 500000 || configuration.behaviorEnvironment != "production" || configuration.maximumCoachContextBytes != 2<<20 {
 		t.Fatalf("configuration=%#v error=%v", configuration, err)
 	}
 	t.Setenv("DATABASE_MAX_CONNECTIONS", "7")
 	if _, err = loadConfig(); err == nil {
 		t.Fatal("undersized production connection pool accepted")
+	}
+	t.Setenv("DATABASE_MAX_CONNECTIONS", "48")
+	t.Setenv("CONTROL_BEHAVIOR_ENVIRONMENT", "development")
+	if _, err = loadConfig(); err == nil {
+		t.Fatal("unknown behavior environment accepted")
+	}
+	t.Setenv("CONTROL_BEHAVIOR_ENVIRONMENT", "production")
+	t.Setenv("COACH_CONTEXT_MAX_BYTES", "1024")
+	if _, err = loadConfig(); err == nil {
+		t.Fatal("undersized Coach context accepted")
 	}
 }
 

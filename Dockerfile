@@ -52,6 +52,7 @@ COPY LICENSE /LICENSE
 # and avoids a privileged, mutable init image.
 COPY deploy/migrations /app/deploy/migrations
 COPY contracts/database /app/contracts/database
+COPY product-content /app/product-content
 
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     ZONEINFO=/zoneinfo.zip

@@ -5,14 +5,20 @@ on:
     paths:
       - "go.mod"
       - "go.sum"
+      - "package.json"
+      - "package-lock.json"
+      - "apps/web/**"
       - "cmd/**"
       - "internal/**"
       - "contracts/database/**"
       - "deploy/**"
       - "Dockerfile"
       - "Dockerfile.reference-tool-runtime"
+      - "Dockerfile.web"
+      - "Dockerfile.web.dockerignore"
       - ".dockerignore"
       - "scripts/verify-production-image.sh"
+      - "scripts/verify-production-web-image.sh"
       - "scripts/verify-actions-pinned.mjs"
       - "scripts/write-stage2-supply-chain-report.mjs"
       - ".github/workflows/**"
@@ -46,10 +52,22 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.22.0"
+          cache: npm
       - name: Enforce immutable GitHub Action references
         run: node scripts/verify-actions-pinned.mjs
       - name: Verify authenticated Go module contents
         run: go mod verify
+      - name: Verify web dependencies and production build
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit --audit-level=high
+          npm run web:lint
+          npm run web:typecheck
+          npm run web:test
+          npm run web:build
       - name: Install pinned Go security and SBOM tools
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
@@ -70,10 +88,11 @@ jobs:
         run: |
           out=gate-reports/stage-2/supply-chain
           cyclonedx-gomod mod -licenses -std -json -output "$out/module.cdx.json" .
-          for service in api-gateway identity-service realtime-gateway behavior-control-plane agent-control-plane identity-import-worker identity-mail-worker outbox-publisher agent-scheduler agent-worker tool-worker tool-reconciliation-worker store-epoch-authority lites-migrate lites-release-assets lites-reference-release runtime-host-agent runtime-sweeper run-cancellation-reconciler reference-capacity-controller reference-provider; do
+          for service in api-gateway identity-service realtime-gateway behavior-control-plane agent-control-plane product-service product-worker identity-import-worker identity-mail-worker outbox-publisher agent-scheduler agent-worker tool-worker tool-reconciliation-worker store-epoch-authority lites-migrate lites-release-assets lites-reference-release runtime-host-agent runtime-sweeper run-cancellation-reconciler reference-capacity-controller reference-provider; do
             cyclonedx-gomod app -licenses -std -json -output "$out/$service.cdx.json" -main "cmd/$service" .
           done
           cyclonedx-gomod app -licenses -std -json -output "$out/reference-tool-runtime.cdx.json" -main cmd/reference-tool-runner .
+          npm sbom --workspace @lites/web --sbom-format cyclonedx --package-lock-only > "$out/web-app.cdx.json"
       - name: Scan source, dependencies, IaC, and secrets
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -107,6 +126,8 @@ jobs:
           - realtime-gateway
           - behavior-control-plane
           - agent-control-plane
+          - product-service
+          - product-worker
           - identity-import-worker
           - identity-mail-worker
           - outbox-publisher
@@ -214,6 +235,54 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  web-container-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          version: ${{ env.BUILDX_VERSION }}
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+      - name: Build production web image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.web
+          load: true
+          push: false
+          platforms: linux/amd64
+          tags: lites/web-app:${{ github.sha }}
+          build-args: |
+            VERSION=sha-${{ github.sha }}
+            REVISION=${{ github.sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=web-app-amd64
+          cache-to: type=gha,mode=max,scope=web-app-amd64
+      - name: Verify distroless non-root web runtime
+        run: ./scripts/verify-production-web-image.sh "lites/web-app:${GITHUB_SHA}"
+      - name: Scan production web image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: lites/web-app:${{ github.sha }}
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 1
+          format: json
+          output: gate-reports/stage-2/images/web-app-trivy.json
+      - name: Upload web image security evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: supply-chain-image-web-app
+          path: gate-reports/stage-2/images/
+          if-no-files-found: error
+          retention-days: 90
+
   publish-signed-images:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [source-security, container-security]
@@ -232,6 +301,8 @@ jobs:
           - realtime-gateway
           - behavior-control-plane
           - agent-control-plane
+          - product-service
+          - product-worker
           - identity-import-worker
           - identity-mail-worker
           - outbox-publisher
@@ -395,5 +466,84 @@ jobs:
         with:
           name: signed-release-reference-tool-runtime
           path: gate-reports/stage-2/releases/reference-tool-runtime.json
+          if-no-files-found: error
+          retention-days: 365
+
+  publish-signed-web-image:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [source-security, web-container-security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          version: ${{ env.BUILDX_VERSION }}
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+      - name: Normalize immutable web image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-web-app" >> "$GITHUB_ENV"
+      - name: Authenticate to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push signed multi-platform web image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.web
+          push: true
+          pull: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:main
+          build-args: |
+            VERSION=sha-${{ github.sha }}
+            REVISION=${{ github.sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=web-app-multiarch
+          cache-to: type=gha,mode=max,scope=web-app-multiarch
+      - name: Install pinned Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+      - name: Sign and verify immutable web digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "$IMAGE@$DIGEST"
+          cosign verify \
+            --certificate-identity "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/supply-chain.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$IMAGE@$DIGEST"
+      - name: Record immutable web release coordinates
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p gate-reports/stage-2/releases
+          jq -n \
+            --arg service "web-app" \
+            --arg image "$IMAGE" \
+            --arg digest "$DIGEST" \
+            --arg commit "$GITHUB_SHA" \
+            --arg workflow_ref "$GITHUB_WORKFLOW_REF" \
+            '{schema_version:"1.0.0",service:$service,image:$image,digest:$digest,source_commit:$commit,workflow_ref:$workflow_ref,sbom_attested:true,provenance_mode:"max",cosign_keyless_signature_verified:true}' \
+            > gate-reports/stage-2/releases/web-app.json
+      - name: Upload signed web release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-release-web-app
+          path: gate-reports/stage-2/releases/web-app.json
           if-no-files-found: error
           retention-days: 365

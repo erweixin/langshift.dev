@@ -31,6 +31,7 @@ const taskDocument = await load(resolve(releaseRoot, "task-templates.json"));
 const rubricDocument = await load(resolve(releaseRoot, "rubric-versions.json"));
 const sourceDocument = await load(resolve(releaseRoot, "content-sources.json"));
 const missionAPI = await load(resolve(root, "contracts", "openapi", "amendments", "v1.15.0", "product-mission-focus.json"));
+const routeAPI = await load(resolve(root, "contracts", "openapi", "amendments", "v1.16.0", "product-route-revisions.json"));
 const roleIds = new Set(ontology.roles.map((item) => item.id));
 const capabilityIds = new Set(ontology.capabilities.map((item) => item.id));
 const transitionIds = new Set(transitionDocument.transitions.map((item) => item.id));
@@ -60,6 +61,10 @@ check("MISSION-API-VERSION", missionAPI.amendmentVersion === "1.15.0" && mission
 check("MISSION-API-CAS", missionAPI.schemas.MissionStatusChangeRequestV2.required.includes("expected_mission_version") && missionAPI.schemas.MissionStatusChangeRequestV2.required.includes("expected_focus_version") && missionAPI.schemas.MissionFocusChangeRequestV2.required.includes("expected_focus_version"), "status and focus mutations expose every durable CAS token");
 check("MISSION-API-FOCUS", missionAPI.schemas.MissionListResponseV2.required.includes("focus") && missionAPI.schemas.MissionMutationResponseV2.required.includes("focus") && missionAPI.schemas.MissionFocusV2.properties.version.minimum === 0, "reads and mutations return the independent Focus version");
 check("MISSION-API-BOUNDARY", missionAPI.schemas.MissionFocusChangeRequestV2.properties.replacement_mission_id.type === "null" && missionAPI.operations["missions.update.v2"].replacementRule.includes("required"), "focus target and status replacement semantics are unambiguous");
+check("ROUTE-API-VERSION", routeAPI.amendmentVersion === "1.16.0" && routeAPI.baseContractVersion === missionAPI.amendmentVersion && routeAPI.compatibility === "versioned-client-additive", "Route V2 is chained after Mission/Focus as a versioned additive amendment");
+check("ROUTE-API-CAS", routeAPI.schemas.RouteGenerateRequestV2.required.includes("expected_route_version") && routeAPI.schemas.RouteGenerateRequestV2.required.includes("expected_claim_set_hash") && ["expected_revision_version", "expected_route_version", "expected_claim_set_hash"].every((field) => routeAPI.schemas.RouteAcceptRequestV2.required.includes(field)), "route generation and acceptance expose every durable CAS token");
+check("ROUTE-API-SNAPSHOTS", ["input_manifest", "claim_set_hash", "agent_profile_snapshot_id", "ontology_snapshot_id", "content_snapshot_id"].every((field) => routeAPI.schemas.RouteRevisionResourceV2.required.includes(field)), "route resources expose the immutable planner input and behavior/content snapshots");
+check("ROUTE-API-ATOMICITY", routeAPI.plannerCompletionRule.includes("stale") && routeAPI.acceptanceAtomicityRule.includes("encrypted idempotency response") && routeAPI.staleTaskRule.includes("exact accepted revision"), "stale completion, acceptance atomicity and downstream task binding are explicit");
 
 const productEval = await load(resolve(root, "product-evals", "bilingual-transition-evals.json"));
 const evalGroups = Object.groupBy(productEval.samples, (sample) => sample.semanticKey);
@@ -93,7 +98,7 @@ const report = {
   }))),
   passedChecks: [
     "manifest_integrity", "bilingual_ontology", "referential_integrity", "evidence_upgrade_safety",
-    "transition_task_rubric_coverage", "product_eval_bilingual_pairing", "five_profile_bilingual_pairing",
+    "transition_task_rubric_coverage", "product_eval_bilingual_pairing", "five_profile_bilingual_pairing", "mission_focus_route_api_contracts",
   ],
   notClaimedByThisReport: ["model_outputs_scored_by_two_reviewers", "browser_e2e", "accessibility_manual_review", "28_day_60_participant_pilot", "stage4_approval"],
 };

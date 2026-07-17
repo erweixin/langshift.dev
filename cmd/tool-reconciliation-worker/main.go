@@ -81,6 +81,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("configure object store")
 	}
 	blobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 32 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
+	artifacts := s3store.Store{Client: s3Client, Bucket: configuration.artifactBucket, Prefix: configuration.artifactPrefix, MaxBytes: configuration.artifactMaxBytes, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
 	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecure})
 	if err != nil {
 		return errors.New("configure Vault")
@@ -90,6 +91,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
+	registrations = append(registrations, toolreconciler.LookupRegistration{Name: "artifact_export", Lookup: toolreconciler.ArtifactExportLookup{Payloads: payloads, Objects: artifacts, MaxBytes: configuration.artifactMaxBytes}})
 	connection, js, err := natsjs.Connect(natsjs.ConnectionConfig{URLs: configuration.natsURLs, Name: configuration.natsName, CredentialsFile: configuration.natsCredentialsFile, RootCAFile: configuration.natsCAFile, ClientCertificateFile: configuration.natsCertFile, ClientKeyFile: configuration.natsKeyFile, ConnectTimeout: 5 * time.Second, ReconnectWait: 2 * time.Second, AllowInsecureDevelopment: configuration.allowInsecure, OnDisconnect: func(err error) { logger.Warn("nats disconnected", "error", err) }, OnReconnect: func(url string) { logger.Info("nats reconnected", "url", url) }})
 	if err != nil {
 		return errors.New("connect NATS")
@@ -115,7 +117,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	locker := toolreconciler.PostgresLocker{Pool: pool, UnlockTimeout: configuration.sweeperUnlockTimeout}
 	coordinator := toolreconciler.Coordinator{Store: runStore, Payloads: payloads, Locker: locker, IDKey: executionIDKey, StoreEpoch: storeEpoch, ReconcileDelay: configuration.abandonedReconcileDelay, Reconcile: toolreconciler.Schedule{QueueClass: "background", ResourceClass: "tool-reconciliation", Priority: 40, CostUnits: 1, MaxAttempts: 20}, MaximumCommand: configuration.maximumCommand, ShardCount: configuration.shardCount, TenantPage: configuration.tenantPage, EffectPage: configuration.effectPage, Metrics: telemetry.AgentMetrics()}
 	dependencyCtx, dependencyCancel := context.WithTimeout(parent, 5*time.Second)
-	dependencyErr := dependenciesReady(dependencyCtx, pool, connection, js, authority, storeEpoch, blobs.Ready, vaultReader.Ready)
+	dependencyErr := dependenciesReady(dependencyCtx, pool, connection, js, authority, storeEpoch, blobs.Ready, artifacts.Ready, vaultReader.Ready)
 	dependencyCancel()
 	if dependencyErr != nil {
 		return errors.New("tool reconciliation dependency is not ready")
@@ -132,7 +134,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	}}
 	ready := &atomic.Bool{}
 	ready.Store(true)
-	health := healthServer(configuration.healthAddress, ready, pool, connection, js, authority, storeEpoch, blobs.Ready, vaultReader.Ready, telemetry.MetricsHandler())
+	health := healthServer(configuration.healthAddress, ready, pool, connection, js, authority, storeEpoch, blobs.Ready, artifacts.Ready, vaultReader.Ready, telemetry.MetricsHandler())
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	errs := make(chan error, 3)
@@ -248,7 +250,7 @@ func dependenciesReady(ctx context.Context, pool *pgxpool.Pool, connection *nats
 	return nil
 }
 
-func healthServer(address string, ready *atomic.Bool, pool *pgxpool.Pool, connection *nats.Conn, js jetstream.JetStream, authority epoch.HTTPAuthority, expectedEpoch string, blobReady, vaultReady readiness, metrics http.Handler) *http.Server {
+func healthServer(address string, ready *atomic.Bool, pool *pgxpool.Pool, connection *nats.Conn, js jetstream.JetStream, authority epoch.HTTPAuthority, expectedEpoch string, blobReady, artifactReady, vaultReady readiness, metrics http.Handler) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics)
 	mux.HandleFunc("GET /live", func(writer http.ResponseWriter, _ *http.Request) {
@@ -259,7 +261,7 @@ func healthServer(address string, ready *atomic.Bool, pool *pgxpool.Pool, connec
 		writer.Header().Set("Cache-Control", "no-store")
 		ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
 		defer cancel()
-		if !ready.Load() || dependenciesReady(ctx, pool, connection, js, authority, expectedEpoch, blobReady, vaultReady) != nil {
+		if !ready.Load() || dependenciesReady(ctx, pool, connection, js, authority, expectedEpoch, blobReady, artifactReady, vaultReady) != nil {
 			http.Error(writer, "not ready", http.StatusServiceUnavailable)
 			return
 		}

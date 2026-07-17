@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -88,10 +89,15 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
+	productClient, productUpstream, err := configuration.productUpstreamClient()
+	if err != nil {
+		return err
+	}
 	identityProxy := newUpstreamProxy(upstreamClient, upstream, "identity", 0, logger)
 	realtimeProxy := newUpstreamProxy(realtimeClient, realtimeUpstream, "realtime", -1, logger)
 	behaviorProxy := newUpstreamProxy(behaviorClient, behaviorUpstream, "behavior", 0, logger)
 	agentProxy := newUpstreamProxy(agentClient, agentUpstream, "agent-control", 0, logger)
+	productProxy := newUpstreamProxy(productClient, productUpstream, "product", 0, logger)
 	upstreamRouter := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if isRealtimeRoute(request.URL.Path) {
 			realtimeProxy.ServeHTTP(writer, request)
@@ -103,6 +109,10 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		}
 		if isAgentRoute(request.URL.Path) {
 			agentProxy.ServeHTTP(writer, request)
+			return
+		}
+		if isProductRoute(request.URL.Path) {
+			productProxy.ServeHTTP(writer, request)
 			return
 		}
 		identityProxy.ServeHTTP(writer, request)
@@ -123,6 +133,9 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 			}
 			if isAgentRoute(request.URL.Path) {
 				return configuration.agentTrustedAudience
+			}
+			if isProductRoute(request.URL.Path) {
+				return configuration.productTrustedAudience
 			}
 			return configuration.trustedAudience
 		},
@@ -185,7 +198,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	go func() {
 		errChannel <- monitorSigningWindow(ctx, secrets.SigningNotAfter, configuration.trustedContextTTL)
 	}()
-	logger.Info("api gateway ready", "address", configuration.listenAddress, "identity_upstream", upstream.Host, "realtime_upstream", realtimeUpstream.Host, "behavior_upstream", behaviorUpstream.Host, "agent_upstream", agentUpstream.Host, "signing_key_id", secrets.SigningKeyID)
+	logger.Info("api gateway ready", "address", configuration.listenAddress, "identity_upstream", upstream.Host, "realtime_upstream", realtimeUpstream.Host, "behavior_upstream", behaviorUpstream.Host, "agent_upstream", agentUpstream.Host, "product_upstream", productUpstream.Host, "signing_key_id", secrets.SigningKeyID)
 	var runErr error
 	select {
 	case <-parent.Done():
@@ -200,6 +213,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	realtimeClient.CloseIdleConnections()
 	behaviorClient.CloseIdleConnections()
 	agentClient.CloseIdleConnections()
+	productClient.CloseIdleConnections()
 	if telemetryErr := telemetry.Shutdown(shutdownCtx); telemetryErr != nil && runErr == nil {
 		runErr = telemetryErr
 	}
@@ -244,6 +258,35 @@ func isAgentRoute(path string) bool {
 				return len(parts) == 2 && parts[1] == "decisions"
 			}
 		}
+	}
+	return false
+}
+
+var gatewayUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+func isProductRoute(path string) bool {
+	if path == "/v1/missions" || path == "/v1/route-revisions" || path == "/v1/daily-tasks" || path == "/v1/submissions" || path == "/v1/reviews" || path == "/v1/capability-evidence" || path == "/v1/preferences" || path == "/v1/reminder-schedules" {
+		return true
+	}
+	if strings.HasPrefix(path, "/v1/missions/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/v1/missions/"), "/")
+		return len(parts) == 1 && gatewayUUIDPattern.MatchString(parts[0]) || len(parts) == 2 && gatewayUUIDPattern.MatchString(parts[0]) && parts[1] == "focus"
+	}
+	if strings.HasPrefix(path, "/v1/route-revisions/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/v1/route-revisions/"), "/")
+		return len(parts) == 2 && gatewayUUIDPattern.MatchString(parts[0]) && parts[1] == "accept"
+	}
+	if strings.HasPrefix(path, "/v1/daily-tasks/") {
+		id := strings.TrimPrefix(path, "/v1/daily-tasks/")
+		return gatewayUUIDPattern.MatchString(id)
+	}
+	if strings.HasPrefix(path, "/v1/reviews/") {
+		id := strings.TrimPrefix(path, "/v1/reviews/")
+		return gatewayUUIDPattern.MatchString(id)
+	}
+	if strings.HasPrefix(path, "/v1/reminder-schedules/") {
+		id := strings.TrimPrefix(path, "/v1/reminder-schedules/")
+		return gatewayUUIDPattern.MatchString(id)
 	}
 	return false
 }

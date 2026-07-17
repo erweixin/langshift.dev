@@ -33,8 +33,9 @@ type config struct {
 	realtimeURL, realtimeCAFile, realtimeCertFile, realtimeKeyFile, realtimeTLSServerName string
 	behaviorURL, behaviorCAFile, behaviorCertFile, behaviorKeyFile, behaviorTLSServerName string
 	agentURL, agentCAFile, agentCertFile, agentKeyFile, agentTLSServerName                string
+	productURL, productCAFile, productCertFile, productKeyFile, productTLSServerName      string
 	secretBundleFile, trustedIssuer, trustedAudience, realtimeTrustedAudience             string
-	behaviorTrustedAudience, agentTrustedAudience                                         string
+	behaviorTrustedAudience, agentTrustedAudience, productTrustedAudience                 string
 	trustedKeyringFile                                                                    string
 	publicOrigins, trustedProxyCIDRs                                                      []string
 	environment, serviceVersion, region                                                   string
@@ -101,7 +102,8 @@ func loadConfig() (config, error) {
 		realtimeURL: os.Getenv("REALTIME_UPSTREAM_URL"), realtimeCAFile: os.Getenv("REALTIME_UPSTREAM_ROOT_CA_FILE"), realtimeCertFile: os.Getenv("REALTIME_UPSTREAM_CLIENT_CERT_FILE"), realtimeKeyFile: os.Getenv("REALTIME_UPSTREAM_CLIENT_KEY_FILE"), realtimeTLSServerName: os.Getenv("REALTIME_UPSTREAM_TLS_SERVER_NAME"),
 		behaviorURL: os.Getenv("BEHAVIOR_UPSTREAM_URL"), behaviorCAFile: os.Getenv("BEHAVIOR_UPSTREAM_ROOT_CA_FILE"), behaviorCertFile: os.Getenv("BEHAVIOR_UPSTREAM_CLIENT_CERT_FILE"), behaviorKeyFile: os.Getenv("BEHAVIOR_UPSTREAM_CLIENT_KEY_FILE"), behaviorTLSServerName: os.Getenv("BEHAVIOR_UPSTREAM_TLS_SERVER_NAME"),
 		agentURL: os.Getenv("AGENT_UPSTREAM_URL"), agentCAFile: os.Getenv("AGENT_UPSTREAM_ROOT_CA_FILE"), agentCertFile: os.Getenv("AGENT_UPSTREAM_CLIENT_CERT_FILE"), agentKeyFile: os.Getenv("AGENT_UPSTREAM_CLIENT_KEY_FILE"), agentTLSServerName: os.Getenv("AGENT_UPSTREAM_TLS_SERVER_NAME"),
-		secretBundleFile: os.Getenv("GATEWAY_SECRET_BUNDLE_FILE"), trustedKeyringFile: os.Getenv("TRUSTED_CONTEXT_KEYRING_FILE"), trustedIssuer: envString("TRUSTED_CONTEXT_ISSUER", "lites-gateway"), trustedAudience: envString("TRUSTED_CONTEXT_AUDIENCE", "identity-service"), realtimeTrustedAudience: envString("REALTIME_TRUSTED_CONTEXT_AUDIENCE", "realtime-gateway"), behaviorTrustedAudience: envString("BEHAVIOR_TRUSTED_CONTEXT_AUDIENCE", "behavior-control-plane"), agentTrustedAudience: envString("AGENT_TRUSTED_CONTEXT_AUDIENCE", "agent-control-plane"), trustedContextTTL: contextTTL, publicOrigins: splitNonempty(os.Getenv("PUBLIC_ORIGINS")), trustedProxyCIDRs: splitNonempty(os.Getenv("TRUSTED_PROXY_CIDRS")), allowInsecureDevelopment: allowInsecure,
+		productURL: os.Getenv("PRODUCT_UPSTREAM_URL"), productCAFile: os.Getenv("PRODUCT_UPSTREAM_ROOT_CA_FILE"), productCertFile: os.Getenv("PRODUCT_UPSTREAM_CLIENT_CERT_FILE"), productKeyFile: os.Getenv("PRODUCT_UPSTREAM_CLIENT_KEY_FILE"), productTLSServerName: os.Getenv("PRODUCT_UPSTREAM_TLS_SERVER_NAME"),
+		secretBundleFile: os.Getenv("GATEWAY_SECRET_BUNDLE_FILE"), trustedKeyringFile: os.Getenv("TRUSTED_CONTEXT_KEYRING_FILE"), trustedIssuer: envString("TRUSTED_CONTEXT_ISSUER", "lites-gateway"), trustedAudience: envString("TRUSTED_CONTEXT_AUDIENCE", "identity-service"), realtimeTrustedAudience: envString("REALTIME_TRUSTED_CONTEXT_AUDIENCE", "realtime-gateway"), behaviorTrustedAudience: envString("BEHAVIOR_TRUSTED_CONTEXT_AUDIENCE", "behavior-control-plane"), agentTrustedAudience: envString("AGENT_TRUSTED_CONTEXT_AUDIENCE", "agent-control-plane"), productTrustedAudience: envString("PRODUCT_TRUSTED_CONTEXT_AUDIENCE", "product-service"), trustedContextTTL: contextTTL, publicOrigins: splitNonempty(os.Getenv("PUBLIC_ORIGINS")), trustedProxyCIDRs: splitNonempty(os.Getenv("TRUSTED_PROXY_CIDRS")), allowInsecureDevelopment: allowInsecure,
 		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), traceSampleRatio: traceRatio,
 	}
 	return value, value.validate()
@@ -120,8 +122,11 @@ func (value config) validate() error {
 	if !validUpstreamURL(value.agentURL, value.allowInsecureDevelopment) {
 		return errors.New("AGENT_UPSTREAM_URL is invalid")
 	}
-	audiences := []string{value.trustedAudience, value.realtimeTrustedAudience, value.behaviorTrustedAudience, value.agentTrustedAudience}
-	if value.databaseURL == "" || value.listenAddress == "" || value.healthAddress == "" || value.secretBundleFile == "" || value.trustedKeyringFile == "" || value.trustedIssuer == "" || !allDistinctNonempty(audiences) || value.trustedContextTTL <= 0 || value.trustedContextTTL > 5*time.Minute || len(value.publicOrigins) == 0 || value.environment == "" || value.serviceVersion == "" || value.region == "" || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 512 || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.identityCertFile == "") != (value.identityKeyFile == "") || (value.realtimeCertFile == "") != (value.realtimeKeyFile == "") || (value.behaviorCertFile == "") != (value.behaviorKeyFile == "") || (value.agentCertFile == "") != (value.agentKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
+	if !validUpstreamURL(value.productURL, value.allowInsecureDevelopment) {
+		return errors.New("PRODUCT_UPSTREAM_URL is invalid")
+	}
+	audiences := []string{value.trustedAudience, value.realtimeTrustedAudience, value.behaviorTrustedAudience, value.agentTrustedAudience, value.productTrustedAudience}
+	if value.databaseURL == "" || value.listenAddress == "" || value.healthAddress == "" || value.secretBundleFile == "" || value.trustedKeyringFile == "" || value.trustedIssuer == "" || !allDistinctNonempty(audiences) || value.trustedContextTTL <= 0 || value.trustedContextTTL > 5*time.Minute || len(value.publicOrigins) == 0 || value.environment == "" || value.serviceVersion == "" || value.region == "" || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 512 || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.identityCertFile == "") != (value.identityKeyFile == "") || (value.realtimeCertFile == "") != (value.realtimeKeyFile == "") || (value.behaviorCertFile == "") != (value.behaviorKeyFile == "") || (value.agentCertFile == "") != (value.agentKeyFile == "") || (value.productCertFile == "") != (value.productKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return errors.New("required gateway configuration is missing or invalid")
 	}
 	if _, err := gateway.ParseTrustedProxyCIDRs(value.trustedProxyCIDRs); err != nil {
@@ -138,7 +143,7 @@ func (value config) validate() error {
 		}
 		seen[origin] = struct{}{}
 	}
-	if !value.allowInsecureDevelopment && (value.databaseURLFile == "" || value.serverCertificateFile == "" || value.identityCAFile == "" || value.identityCertFile == "" || value.identityTLSServerName == "" || value.realtimeCAFile == "" || value.realtimeCertFile == "" || value.realtimeTLSServerName == "" || value.behaviorCAFile == "" || value.behaviorCertFile == "" || value.behaviorTLSServerName == "" || value.agentCAFile == "" || value.agentCertFile == "" || value.agentTLSServerName == "" || value.otlpEndpoint == "" || (value.otlpBearerTokenFile == "" && value.otlpCertFile == "")) {
+	if !value.allowInsecureDevelopment && (value.databaseURLFile == "" || value.serverCertificateFile == "" || value.identityCAFile == "" || value.identityCertFile == "" || value.identityTLSServerName == "" || value.realtimeCAFile == "" || value.realtimeCertFile == "" || value.realtimeTLSServerName == "" || value.behaviorCAFile == "" || value.behaviorCertFile == "" || value.behaviorTLSServerName == "" || value.agentCAFile == "" || value.agentCertFile == "" || value.agentTLSServerName == "" || value.productCAFile == "" || value.productCertFile == "" || value.productTLSServerName == "" || value.otlpEndpoint == "" || (value.otlpBearerTokenFile == "" && value.otlpCertFile == "")) {
 		return errors.New("production requires file-backed database credentials, TLS, upstream mTLS, and authenticated telemetry")
 	}
 	return nil
@@ -212,6 +217,10 @@ func (value config) behaviorUpstreamClient() (*http.Client, *url.URL, error) {
 
 func (value config) agentUpstreamClient() (*http.Client, *url.URL, error) {
 	return configuredUpstreamClient(value.agentURL, value.agentCAFile, value.agentCertFile, value.agentKeyFile, value.agentTLSServerName, 45*time.Second)
+}
+
+func (value config) productUpstreamClient() (*http.Client, *url.URL, error) {
+	return configuredUpstreamClient(value.productURL, value.productCAFile, value.productCertFile, value.productKeyFile, value.productTLSServerName, 35*time.Second)
 }
 
 func allDistinctNonempty(values []string) bool {

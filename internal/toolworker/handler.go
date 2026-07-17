@@ -329,7 +329,7 @@ func (handler Handler) commit(ctx context.Context, command CommandPayload, decis
 			SchemaVersion: 1, TenantID: claim.TenantID, RunID: claim.RunID,
 			ToolCallID: claim.ToolCallID, EffectID: claim.EffectID,
 			ToolName: command.ToolName, DescriptorSnapshotID: command.DescriptorSnapshotID,
-			DescriptorHash: command.DescriptorHash, EffectClass: claim.EffectClass,
+			DescriptorHash: command.DescriptorHash, Input: command.Input, EffectClass: claim.EffectClass,
 			EffectKey: command.EffectKey, EffectScope: command.EffectScope, ProviderID: command.ProviderID,
 			ProviderRequestID: claim.ProviderRequestID, RequestHash: command.RequestHash,
 			TerminalToolVersion: terminalVersion, ReconciliationDueAt: dueAt, OutcomeUnknownAt: unknownAt,

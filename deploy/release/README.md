@@ -16,7 +16,10 @@ definitions.
 
 1. Create a tracked definition containing every production prompt, route, tool,
    and provider pin. Prompt hashes and all container/runtime policy digests must
-   already be exact.
+   already be exact. Every release serving `artifact_builder` must include the
+   descriptor returned by `toolworker.ArtifactExportDescriptor` with the exact
+   signed ToolWorker image digest; ToolWorker and reconciliation-worker both
+   fail startup if handler coverage is incomplete.
 2. Attach the definition digest to the behavior release candidate, run its
    offline eval and red-team suites, and obtain the required approval event.
 3. Commit the reviewed definition. The builder rejects dirty trees and

@@ -1,0 +1,139 @@
+{
+  "amendmentVersion": "1.16.0",
+  "baseContractVersion": "1.15.0",
+  "kind": "openapi-operation-version-extension",
+  "compatibility": "versioned-client-additive",
+  "operations": {
+    "routes.list.v2": {
+      "method": "GET",
+      "path": "/v1/route-revisions",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "requiredQuery": ["mission_id"],
+      "responseContentType": "application/vnd.lites.route-revisions.v2+json",
+      "responseSchema": "RouteRevisionListResponseV2",
+      "cachePolicy": "private_no_store"
+    },
+    "routes.generate.v2": {
+      "method": "POST",
+      "path": "/v1/route-revisions",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.route-generate.v2+json",
+      "requestSchema": "RouteGenerateRequestV2",
+      "responseContentType": "application/vnd.lites.route-generation.v2+json",
+      "responseSchema": "RouteGenerateResponseV2",
+      "concurrency": "expected_route_version and expected_claim_set_hash are both checked while the Mission row is locked."
+    },
+    "routes.accept.v2": {
+      "method": "POST",
+      "path": "/v1/route-revisions/{route_revision_id}/accept",
+      "authentication": "gateway_signed_session",
+      "authorization": "tenant_user_owner_scope",
+      "csrf": "required",
+      "idempotency": "required_encrypted_durable_response",
+      "requestContentType": "application/vnd.lites.route-accept.v2+json",
+      "requestSchema": "RouteAcceptRequestV2",
+      "responseContentType": "application/vnd.lites.route-acceptance.v2+json",
+      "responseSchema": "RouteAcceptResponseV2",
+      "concurrency": "The route revision version, Mission route version and Mission claim-set hash must all match in one transaction."
+    }
+  },
+  "schemas": {
+    "RouteRevisionStatusV2": {
+      "type": "string",
+      "enum": ["generating", "proposed", "accepted", "stale", "superseded", "failed"]
+    },
+    "RouteRevisionResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "mission_id", "route_version", "base_route_version", "status", "claim_set_hash", "input_manifest", "route", "agent_profile_snapshot_id", "ontology_snapshot_id", "content_snapshot_id", "planner_command_id", "planner_run_id", "accepted_at", "stale_reason", "failure_reason", "created_at", "updated_at"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1},
+        "mission_id": {"type": "string", "format": "uuid"},
+        "route_version": {"type": "integer", "minimum": 1},
+        "base_route_version": {"type": "integer", "minimum": 0},
+        "status": {"$ref": "#/schemas/RouteRevisionStatusV2"},
+        "claim_set_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "input_manifest": {"type": "object"},
+        "route": {"type": ["object", "null"]},
+        "agent_profile_snapshot_id": {"type": "string", "minLength": 1},
+        "ontology_snapshot_id": {"type": "string", "minLength": 1},
+        "content_snapshot_id": {"type": "string", "minLength": 1},
+        "planner_command_id": {"type": ["string", "null"], "format": "uuid"},
+        "planner_run_id": {"type": ["string", "null"], "format": "uuid"},
+        "accepted_at": {"type": ["string", "null"], "format": "date-time"},
+        "stale_reason": {"type": ["string", "null"]},
+        "failure_reason": {"type": ["string", "null"], "maxLength": 128},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "RouteRevisionListResponseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "next_cursor"],
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "#/schemas/RouteRevisionResourceV2"}},
+        "next_cursor": {"type": ["string", "null"]}
+      }
+    },
+    "RouteGenerateRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "mission_id", "expected_route_version", "expected_claim_set_hash"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "mission_id": {"type": "string", "format": "uuid"},
+        "expected_route_version": {"type": "integer", "minimum": 0},
+        "expected_claim_set_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "RouteGenerateResponseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route_revision_id", "revision_version", "status", "planner_command_id", "event_id", "replayed"],
+      "properties": {
+        "route_revision_id": {"type": "string", "format": "uuid"},
+        "revision_version": {"type": "integer", "minimum": 1},
+        "status": {"const": "generating"},
+        "planner_command_id": {"type": "string", "format": "uuid"},
+        "event_id": {"type": "string", "format": "uuid"},
+        "replayed": {"type": "boolean"}
+      }
+    },
+    "RouteAcceptRequestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "expected_revision_version", "expected_route_version", "expected_claim_set_hash"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "expected_revision_version": {"type": "integer", "minimum": 1},
+        "expected_route_version": {"type": "integer", "minimum": 0},
+        "expected_claim_set_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "RouteAcceptResponseV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route_revision_id", "revision_version", "mission_id", "mission_version", "route_version", "current_route_revision_id", "status", "event_id", "replayed"],
+      "properties": {
+        "route_revision_id": {"type": "string", "format": "uuid"},
+        "revision_version": {"type": "integer", "minimum": 1},
+        "mission_id": {"type": "string", "format": "uuid"},
+        "mission_version": {"type": "integer", "minimum": 1},
+        "route_version": {"type": "integer", "minimum": 1},
+        "current_route_revision_id": {"type": "string", "format": "uuid"},
+        "status": {"const": "accepted"},
+        "event_id": {"type": "string", "format": "uuid"},
+        "replayed": {"type": "boolean"}
+      }
+    }
+  },
+  "plannerCompletionRule": "Completion locks the Mission and revision. If base_route_version or claim_set_hash moved, the payload is committed only as stale; it can never become proposed or current.",
+  "acceptanceAtomicityRule": "Candidate acceptance, previous current revision supersession, Mission version/current pointer update, RouteAccepted event, GenerateDailyTask outbox command and encrypted idempotency response commit or roll back together.",
+  "staleTaskRule": "Daily task generation consumes only the exact accepted revision named by Mission.current_route_revision_id and rejects a stale Mission route version."
+}

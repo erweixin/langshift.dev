@@ -16,6 +16,7 @@ import (
 
 	"github.com/langshift/lites/internal/identity/anonymoussession"
 	"github.com/langshift/lites/internal/identity/session"
+	"github.com/langshift/lites/internal/platform/ids"
 	"github.com/langshift/lites/internal/platform/problem"
 	"github.com/langshift/lites/internal/security/transport"
 	"github.com/langshift/lites/internal/security/trustedcontext"
@@ -67,12 +68,11 @@ func (boundary TrustBoundary) Wrap(next http.Handler) http.Handler {
 		if randomSource == nil {
 			randomSource = rand.Reader
 		}
-		requestIDBytes := make([]byte, 16)
-		if _, err := io.ReadFull(randomSource, requestIDBytes); err != nil {
+		requestID, err := ids.NewUUIDFrom(randomSource)
+		if err != nil {
 			boundary.internalError(writer, request)
 			return
 		}
-		requestID := base64.RawURLEncoding.EncodeToString(requestIDBytes)
 		request.Header.Set(RequestIDHeader, requestID)
 		writer.Header().Set(RequestIDHeader, requestID)
 		for _, name := range untrustedIdentityHeaders {

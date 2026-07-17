@@ -111,6 +111,7 @@ func (store ContextSourceStore) Load(ctx context.Context, execution Execution) (
 		FROM agent.run_messages m JOIN agent.runs source ON source.tenant_id=m.tenant_id AND source.id=m.run_id
 		WHERE m.tenant_id=$1 AND m.user_id=$2 AND source.conversation_id=$3
 		  AND (source.created_at<$4 OR (source.created_at=$4 AND source.id=$5))
+		  AND (m.source_kind<>'product_context' OR source.id=$5)
 		ORDER BY source.created_at,source.id,m.message_index,m.id LIMIT $6`, execution.Claim.TenantID, execution.Claim.UserID, result.ConversationID, runCreated, result.RunID, store.maximumMessages()+1)
 	if err != nil {
 		return ContextSources{}, err

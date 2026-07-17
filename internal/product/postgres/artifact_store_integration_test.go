@@ -51,6 +51,7 @@ func TestArtifactRevisionsAreScannedEvidenceBoundReplaySafeAndCASProtected(t *te
 	evidenceID := "a4000000-0000-4000-8000-000000000007"
 	artifactID := "a4000000-0000-4000-8000-000000000008"
 	epoch := "a4000000-0000-4000-8000-000000000009"
+	projectEventID := "a4000000-0000-4000-8000-000000000013"
 	setup := []struct {
 		query string
 		args  []any
@@ -61,7 +62,6 @@ func TestArtifactRevisionsAreScannedEvidenceBoundReplaySafeAndCASProtected(t *te
 		{`INSERT INTO product.missions(id,tenant_id,user_id,status,target_role_profile_id,route_version,claim_set_hash) VALUES($1,$2,$3,'active',$4,1,'claims-a4')`, []any{missionID, tenantID, userID, roleID}},
 		{`INSERT INTO product.route_revisions(id,tenant_id,user_id,mission_id,route_version,status,claim_set_hash,base_route_version,input_manifest,route_payload_ref,agent_profile_snapshot_id,ontology_snapshot_id,content_snapshot_id,accepted_at) VALUES($1,$2,$3,$4,1,'accepted','claims-a4',0,'{}','encrypted://route','route@a4','ontology@a4','content@a4',$5)`, []any{routeID, tenantID, userID, missionID, now}},
 		{`UPDATE product.missions SET current_route_revision_id=$1 WHERE id=$2`, []any{routeID, missionID}},
-		{`INSERT INTO product.projects(id,tenant_id,user_id,mission_id,accepted_route_revision_id,status,project_kind,title,brief_ref) VALUES($1,$2,$3,$4,$5,'active','writing','Artifact Project','encrypted://brief')`, []any{projectID, tenantID, userID, missionID, routeID}},
 		{`INSERT INTO product.evidence(id,tenant_id,user_id,mission_id,evidence_type,status,source_kind,payload_ref,content_hash,recorded_at) VALUES($1,$2,$3,$4,'project','verified','project','encrypted://evidence','evidence-hash-a4',$5)`, []any{evidenceID, tenantID, userID, missionID, now}},
 	}
 	for _, statement := range setup {
@@ -69,6 +69,7 @@ func TestArtifactRevisionsAreScannedEvidenceBoundReplaySafeAndCASProtected(t *te
 			t.Fatal(err)
 		}
 	}
+	seedActiveProject(t, ctx, admin, activeProjectFixture{ProjectID: projectID, TenantID: tenantID, UserID: userID, MissionID: missionID, RouteID: routeID, ProjectEventID: projectEventID, StoreEpoch: epoch, CorrelationID: routeID, At: now})
 	clock := now
 	store := ArtifactStore{Pool: pool, Appender: eventpostgres.Appender{Now: func() time.Time { return clock }}, IDKey: bytes.Repeat([]byte{0xa4}, 32), StoreEpoch: epoch, Epochs: artifactEpochStub{epoch}, Now: func() time.Time { return clock }}
 	create := CreateArtifactCommand{ArtifactID: artifactID, TenantID: tenantID, UserID: userID, ProjectID: projectID, ArtifactKind: "writing", Title: "Production architecture", CorrelationID: routeID, Actor: json.RawMessage(`{"kind":"user"}`), CreatedEvent: PayloadPointer{Ref: "encrypted://artifact-created", Hash: "artifact-created-a4"}}
