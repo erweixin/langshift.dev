@@ -1,6 +1,6 @@
 # Lites 架构文档
 
-这个目录保留 Lites Cloud Agent 的架构内核、一个独立的 UX 原型，以及从产品理念、原型和架构重新推导出的完整 GA 实施计划。前端代码、后端代码、生成出来的 schema、本地脚本和旧实现记录已经移除，目的是让项目从一套更清楚的 Cloud Agent 架构重新开始。
+这个目录保留 Lites 的内部 Cloud Agent 架构、独立 UX 原型和职业迁移垂直 SaaS 商业化实施计划。仓库已经包含前端、Go 服务、数据库契约、部署定义、测试与验收脚本；架构文档描述目标语义，不代表每项能力都已经达到对应成熟度。
 
 读这组文档时可以先抓住五件事：
 
@@ -8,7 +8,7 @@
 - EventStore、durable queue/stream、runtime、memory、realtime、evaluation 和 observability 都按生产基线设计；组件可以演进，但语义不能变。
 - LLM 只提出计划，真正的权限、工具执行、安全审批和状态推进都由平台负责。
 - 多 Agent、长期记忆、流式输出和自动工具执行都不是默认魔法，而是建立在状态机、权限、隔离和可观测之上的可选能力。
-- [product-implementation-plan.md](./product-implementation-plan.md) 定义完整产品范围和 GA 验收边界，但不表示仓库已经实现到对应状态，也不划分中间 MVP。
+- [product-implementation-plan.md](./product-implementation-plan.md) 按阶段定义产品范围、macOS 工程门禁和 Commercial GA 前置条件；本轮目标是 Engineering Release Candidate，不把契约模拟视为生产 GA 证据。
 
 ## 怎么读
 
@@ -52,9 +52,9 @@
 
 ## 产品实施计划
 
-[product-implementation-plan.md](./product-implementation-plan.md) 在产品理念、UX 原型和生产架构之上定义 Lites 的完整 GA 产品范围，包括账号体系、成长闭环、企业与合同能力、Agent 内核、数据与 API、实施顺序和发布门禁。
+[product-implementation-plan.md](./product-implementation-plan.md) 在产品理念、UX 原型和生产架构之上定义 Lites 职业迁移垂直 SaaS 的实施路线，包括真实用户主干、账号与租户、成长闭环、企业线下合同、内部 Agent 内核、数据与 API、macOS 验收和生产验证边界。
 
-这份计划是目标状态和实施边界，不是当前实现状态，也不把工作拆成可对外发布的 MVP。真正实现某个模块时，仍须遵守对应架构专题中的状态机、持久化、安全和运维语义。
+这份计划是目标状态和实施边界，不是当前实现状态。阶段 0–7 是内部工程门禁，最终产物为 Engineering Release Candidate；真实 Linux/KVM、云高可用、容量、灾备、外部安全评估和用户 pilot 完成前不能宣称 Commercial GA。实现各模块时仍须遵守对应架构专题中的状态机、持久化、安全和运维语义。
 
 ## 已有内容为什么被移除
 
