@@ -57,10 +57,22 @@ assert.equal(report.capabilities.find((capability) => capability.capabilityId ==
 assert.equal(report.capabilities.find((capability) => capability.capabilityId === "ID-003-CAP-01").status, "implemented");
 assert.equal(report.capabilities.find((capability) => capability.capabilityId === "GROWTH-009-CAP-08").status, "implemented");
 
-const rcReport = await buildStage0Baseline({ includeEvidence: false, requireEngineeringRC: true });
+const cleanSourceState = { sourceCommit: commit, worktreeDirty: false, changedPaths: [], gitVersion: "git version test" };
+const rcReport = await buildStage0Baseline({ includeEvidence: false, requireEngineeringRC: true, sourceState: cleanSourceState });
 assert.equal(rcReport.completionMode, "engineering_rc");
-assert.equal(rcReport.result, "failed");
+assert.equal(rcReport.result, "passed");
+assert.equal(rcReport.worktreeDirty, false);
+assert.deepEqual(rcReport.errors, []);
 assert.equal(rcReport.errors.some((error) => error.includes("partial/missing operations")), false);
 assert.equal(rcReport.errors.some((error) => error.includes("partial/missing capabilities")), false);
+
+const dirtyRCReport = await buildStage0Baseline({
+  includeEvidence: false,
+  requireEngineeringRC: true,
+  sourceState: { ...cleanSourceState, worktreeDirty: true, changedPaths: ["README.md"] }
+});
+assert.equal(dirtyRCReport.result, "failed");
+assert.equal(dirtyRCReport.worktreeDirty, true);
+assert.deepEqual(dirtyRCReport.changedPaths, ["README.md"]);
 
 process.stdout.write("stage 0 baseline verifier self-test passed\n");

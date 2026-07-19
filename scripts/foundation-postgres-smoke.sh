@@ -163,7 +163,11 @@ export LITES_TEST_BEHAVIOR_DATABASE_URL="postgres://lites_behavior_service:found
 export LITES_TEST_ERASURE_DATABASE_URL="postgres://lites_erasure_worker:foundation_erasure_worker@127.0.0.1:${container_port}/lites_foundation?sslmode=disable"
 export GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}"
 test_run_args=(-run "${LITES_FOUNDATION_TEST_RUN:-.}")
-test_timeout="${LITES_FOUNDATION_TEST_TIMEOUT:-3m}"
+# The execution integration package deliberately includes the complete
+# fault-injection suite. It currently needs more than three minutes on an
+# otherwise idle Apple Silicon runner, so keep a bounded but realistic package
+# timeout while allowing focused callers to override it.
+test_timeout="${LITES_FOUNDATION_TEST_TIMEOUT:-5m}"
 [[ "${test_timeout}" =~ ^[1-9][0-9]*(s|m)$ ]] || { echo "LITES_FOUNDATION_TEST_TIMEOUT is invalid" >&2; exit 2; }
 if [[ -n "${LITES_FOUNDATION_TEST_PACKAGES:-}" ]]; then
   read -r -a test_packages <<<"${LITES_FOUNDATION_TEST_PACKAGES}"

@@ -237,7 +237,7 @@ async function gitState(root) {
   };
 }
 
-export async function buildStage0Baseline({ root = defaultRoot, includeEvidence = true, requireEngineeringRC = false } = {}) {
+export async function buildStage0Baseline({ root = defaultRoot, includeEvidence = true, requireEngineeringRC = false, sourceState = null } = {}) {
   const errors = [];
   const baselinePath = resolve(root, "contracts/traceability/implementation-baseline.json");
   const baseline = await readJSON(baselinePath);
@@ -361,7 +361,7 @@ export async function buildStage0Baseline({ root = defaultRoot, includeEvidence 
   }
 
   const documents = await validateDocuments(root, baseline.documentAssertions, errors);
-  const git = await gitState(root);
+  const git = sourceState ?? await gitState(root);
   const evidence = includeEvidence ? await classifyGateReports(root, git.sourceCommit, git.worktreeDirty) : { counts: {}, reports: [] };
   const operationCounts = Object.fromEntries(baseline.allowedImplementationStatuses.map((status) => [status, operationCoverage.filter((operation) => operation.status === status).length]));
   const capabilityCounts = Object.fromEntries(baseline.allowedImplementationStatuses.map((status) => [status, capabilityCoverage.filter((capability) => capability.status === status).length]));
