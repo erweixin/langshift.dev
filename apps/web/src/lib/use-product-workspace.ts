@@ -49,14 +49,19 @@ export function useMissions(locale: Locale, enabled = true, pollUntilReady = fal
     if (!enabled) return;
     if (!background) setLoading(true);
     try {
-      const [missions, catalog] = await Promise.all([
+      const [missionsResult, catalogResult] = await Promise.allSettled([
         apiRequest<MissionList>("/v1/missions", { accept: "application/vnd.lites.missions.v2+json", signal }),
         apiRequest<{ items: RoleCatalogItem[]; rubrics: RubricCatalogItem[] }>(`/v1/catalog/roles?locale=${encodeURIComponent(locale)}`, { accept: "application/vnd.lites.role-catalog.v1+json", signal }),
       ]);
-      setData(missions);
-      setRoles(catalog.items);
-      setRubrics(catalog.rubrics);
-      setError("");
+      if (missionsResult.status === "rejected") throw missionsResult.reason;
+      setData(missionsResult.value);
+      if (catalogResult.status === "fulfilled") {
+        setRoles(catalogResult.value.items);
+        setRubrics(catalogResult.value.rubrics);
+        setError("");
+      } else {
+        setError(loadError(catalogResult.reason, locale, true));
+      }
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") return;
       setError(loadError(caught, locale));
@@ -73,11 +78,19 @@ export function useMissions(locale: Locale, enabled = true, pollUntilReady = fal
   const focus = data.items.find((mission) => mission.id === data.focus.mission_id) ?? data.items.find((mission) => mission.focused) ?? null;
   useEffect(() => {
     if (!enabled || !pollUntilReady || loading || focus || readinessPolls.current >= 90) return;
-    const timer = window.setTimeout(() => {
-      readinessPolls.current += 1;
-      void refresh(undefined, true);
-    }, 2_000);
-    return () => window.clearTimeout(timer);
+    let cancelled = false;
+    let timer = 0;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        if (cancelled) return;
+        readinessPolls.current += 1;
+        void refresh(undefined, true).finally(() => {
+          if (!cancelled && readinessPolls.current < 90) schedule();
+        });
+      }, 2_000);
+    };
+    schedule();
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [enabled, focus, loading, pollUntilReady, refresh]);
   return { ...data, focusState: data.focus, roles, rubrics, roleNames, focus, loading, error, refresh };
 }
