@@ -25,6 +25,10 @@
 
 这些排除项不能用 `skipped` 计为通过；若产品范围变化，应先更新能力矩阵、威胁模型和相应验收入口。
 
+## Release decision input exclusions
+
+GitHub Issues 整体属于项目管理数据，不属于 Engineering RC 或 Commercial GA 工程门禁的输入。issue 的数量、内容、状态和标签不会改变发布结果；CI、证据 manifest、候选包和安装器也不得查询、复制、签名或检查 issue。仓库中的历史 issue inventory 策略只为保持旧冻结快照可复核而原样保留，不具有当前规范效力。本规则不要求关闭、修改或标记任何远端 issue。
+
 ## API compatibility
 
 Engineering RC 的职业迁移产品页面和生成客户端使用由冻结基础规范与全部有序 amendments 合并生成的 `contracts/openapi/lites.current.openapi.json`。基础 `1.0.0` 文档里被同运行时路径 v2 operation 取代的 `application/json` 写接口属于尚未启用的兼容面，不能视为可用 API；启用前必须逐项完成同等认证、幂等、CAS、审计、数据库集成和客户端契约测试，或者通过明确的版本化破坏性变更从公开规范删除。合并器会把 `{id}` 与 `{project_id}` 这样的等价模板收敛为一个当前路径，避免生成客户端同时暴露新旧歧义操作。

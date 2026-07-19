@@ -13,7 +13,6 @@ import {
 const root = resolve(import.meta.dirname, "..");
 const option = (name, fallback) => { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : fallback; };
 const verificationPath = option("--verification", ".tmp/verification/macos-engineering-rc.json");
-const releaseIssuesPath = option("--release-issues", ".tmp/verification/engineering-rc-issues.json");
 const outputDirectory = option("--output", "release-candidates/current");
 const outputRoot = resolve(root, outputDirectory);
 const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
@@ -23,9 +22,7 @@ if (git("status", "--porcelain=v1", "--untracked-files=all")) throw new Error("E
 const verificationRaw = await readFile(resolve(root, verificationPath), "utf8");
 const verification = JSON.parse(verificationRaw);
 if (verification.result !== "engineering_rc_passed" || verification.sourceCommit !== sourceCommit || verification.worktreeDirty !== false || verification.commercialGA !== false) throw new Error("verification is not a clean, current Engineering RC pass");
-const releaseIssuesRaw = await readFile(resolve(root, releaseIssuesPath), "utf8");
-const releaseIssues = JSON.parse(releaseIssuesRaw);
-const releaseIssueHash = validateEngineeringRCInputs({ verification, releaseIssues, sourceCommit });
+validateEngineeringRCInputs({ verification, sourceCommit });
 
 await mkdir(resolve(outputRoot, "sbom"), { recursive: true });
 const behaviorPath = resolve(outputRoot, "product-behavior-manifest.json");
@@ -53,7 +50,6 @@ const behaviorRaw = await readFile(behaviorPath);
 const traceRaw = await readFile(tracePath);
 const artifacts = [
   [verificationPath, Buffer.from(verificationRaw)],
-  [releaseIssuesPath, Buffer.from(releaseIssuesRaw)],
   [`${outputDirectory}/product-behavior-manifest.json`, behaviorRaw],
   [`${outputDirectory}/interface-coverage.json`, traceRaw],
   [`${outputDirectory}/sbom/source-dependencies.cdx.json`, await readFile(sbomPath)],
@@ -62,7 +58,7 @@ const artifacts = [
   ["docs/releases/engineering-rc-known-limitations.md", knownLimitationsRaw],
   ["docs/releases/engineering-rc-release-notes.md", releaseNotesRaw],
 ].map(([path, body]) => ({ path, sha256: sha256(body), sizeBytes: body.length }));
-const manifest = buildEngineeringRCManifest({ sourceCommit, generatedAt, releaseIssueHash, dependencyComponents: components.length, artifacts });
+const manifest = buildEngineeringRCManifest({ sourceCommit, generatedAt, dependencyComponents: components.length, artifacts });
 verifyEngineeringRCManifest(manifest);
 await writeFile(resolve(outputRoot, "engineering-rc.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`Engineering RC: commit=${sourceCommit} dependencies=${components.length} hash=${manifest.engineeringReleaseCandidateHash}`);

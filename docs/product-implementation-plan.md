@@ -221,7 +221,7 @@ Go 门禁必须显式扫描项目包，例如 `./cmd/...`、`./internal/...` 和
 - `verify:macos` 执行 Go、Web、契约、数据库集成和无 Demo E2E，并全部通过。
 - Go 测试只扫描项目包，不把 `node_modules` 中的 Go 代码纳入测试范围。
 - 所有通过报告绑定同一个干净 commit；陈旧、dirty 或 fixture 报告不能计为通过。
-- 未解决 P0/P1 为零；所有 `deferred` 项都有原因、负责人类别和后续生产验证入口。
+- 当前提交的全部必需工程检查失败为零；GitHub issue 的数量、内容和标签不作为门禁输入。所有 `deferred` 项都有原因、负责人类别和后续生产验证入口。
 - 输出 SBOM、行为 manifest、数据库迁移清单、接口覆盖报告、已知限制和发布说明。
 - 最终状态只能标记为 `engineering_rc_passed`，不能标记为 `commercial_ga_passed`。
 

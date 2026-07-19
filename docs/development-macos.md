@@ -58,20 +58,19 @@ The matching Playwright Chromium build is also required. Install it once with
 headless browser during preflight and reports `playwright_browser_unavailable`
 before building images when the binary is missing or cannot run.
 
-Engineering RC verification requires network access to GitHub's public REST
-API. `GITHUB_TOKEN` or `GH_TOKEN` is optional for a public repository and is
-used when present to increase the rate limit; an invalid token falls back to
-the same read-only unauthenticated request. `verify:macos` captures every issue
-through bounded, ordered pagination, excludes pull requests, requires every
-open issue to have exactly one configured severity label, and fails when any
-P0, P1 or unclassified issue remains. The snapshot is bound to the same clean
-commit, expires after 24 hours and is written only under `.tmp/verification/`;
-a partial, hand-authored or stale issue list is not accepted.
+Engineering RC verification does not query GitHub issues and does not use issue
+counts, contents or labels as release evidence. The gate therefore has no
+GitHub token or public API dependency. Repository issue tooling, when used for
+project management, remains diagnostic and cannot change a gate result.
 
 `npm test` and `npm run contracts:lint` validate the generated current
 engineering contract set. The old frozen Stage 1 evidence check is retained as
 the explicit `npm run contracts:lint:historical-stage1` command; it is not
-current RC evidence and is not part of the normal developer test loop.
+current RC evidence and is not part of the normal developer test loop. Its
+byte-for-byte snapshot may reference the superseded
+`contracts/release/stage6-issue-inventory-policy.json`; that file is retained
+only so historical evidence remains reproducible and no current gate imports
+or packages it.
 
 `npm run contracts:generate` applies the frozen base contract and every ordered
 file under `contracts/openapi/amendments/` to generate

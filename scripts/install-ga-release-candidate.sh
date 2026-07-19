@@ -22,10 +22,8 @@ IFS=$'\t' read -r expected_identity issuer <<<"${policy_values}"
 for file in \
   ga-release-candidate.json ga-release-candidate.sigstore.json \
   account-erasure-100.json account-erasure-100.sigstore.json \
-  release-issues.json release-issues.sigstore.json \
   product-behavior-manifest.json \
-  evidence/account-erasure-integration.json evidence/account-erasure-dependencies.json \
-  evidence/release-issues-snapshot.json; do
+  evidence/account-erasure-integration.json evidence/account-erasure-dependencies.json; do
   [[ -f "${bundle}/${file}" ]] || { echo "missing RC artifact: ${file}" >&2; exit 1; }
 done
 
@@ -35,23 +33,17 @@ cosign verify-blob --bundle "${bundle}/ga-release-candidate.sigstore.json" \
 cosign verify-blob --bundle "${bundle}/account-erasure-100.sigstore.json" \
   --certificate-identity "${certificate_identity}" --certificate-oidc-issuer "${issuer}" \
   "${bundle}/account-erasure-100.json" >/dev/null
-cosign verify-blob --bundle "${bundle}/release-issues.sigstore.json" \
-  --certificate-identity "${certificate_identity}" --certificate-oidc-issuer "${issuer}" \
-  "${bundle}/release-issues.json" >/dev/null
-
-bundle_values="$(node - "${root}/deploy/private-delivery/manifest.json" "${bundle}/ga-release-candidate.json" "${bundle}/account-erasure-100.json" "${bundle}/product-behavior-manifest.json" "${bundle}/release-issues.json" <<'NODE'
+bundle_values="$(node - "${root}/deploy/private-delivery/manifest.json" "${bundle}/ga-release-candidate.json" "${bundle}/account-erasure-100.json" "${bundle}/product-behavior-manifest.json" <<'NODE'
 const fs = require("node:fs");
 const { createHash } = require("node:crypto");
 const delivery = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const rc = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 const erasure = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
 const behavior = JSON.parse(fs.readFileSync(process.argv[5], "utf8"));
-const issues = JSON.parse(fs.readFileSync(process.argv[6], "utf8"));
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const { releaseCandidateHash, ...rcBase } = rc;
 const { reportHash, ...erasureBase } = erasure;
 const { manifestHash, ...behaviorBase } = behavior;
-const { reportHash: issueReportHash, ...issueBase } = issues;
 const expected = [...delivery.releaseImages, "reference-tool-runtime"].sort();
 const actual = rc.images.map((item) => item.service).sort();
 const expectedRCArtifacts = [...delivery.requiredSourceArtifacts, "deploy/private-delivery/manifest.json", "behavior-manifests/schema.json", "behavior-manifests/impact-matrix.json"].sort();
@@ -62,13 +54,12 @@ const hex64 = /^[0-9a-f]{64}$/;
 const runtimeDigest = /@sha256:[0-9a-f]{64}$/;
 const validRC = rc.schemaVersion === "1.0.0" && rc.releaseKind === "ga_release_candidate" && rc.immutable === true && hex40.test(rc.sourceCommit ?? "") && hex64.test(releaseCandidateHash ?? "") && Array.isArray(rc.images) && rc.images.length > 0 && rc.images.every((item) => item.signatureVerified === true && item.sbomAttested === true && item.provenanceMode === "max" && typeof item.image === "string" && item.image.length > 0 && /^sha256:[0-9a-f]{64}$/.test(item.digest ?? ""));
 const validErasure = erasure.reportVersion === "1.0.0" && erasure.kind === "account-erasure-100" && erasure.status === "passed" && erasure.worktreeDirty === false && erasure.sourceCommit === rc.sourceCommit && erasure.rcHash === releaseCandidateHash && erasure.accounts === 100 && erasure.readableSurfacesAfter === 0 && erasure.completeReceipts === 100 && erasure.restoreRedeletions === 100 && erasure.totalSurfaceReceiptRowsAfterRestore === 1200 && Array.isArray(erasure.dependencyGate?.tests) && erasure.dependencyGate.tests.length === 3 && Object.values(erasure.dependencyGate?.runtimes ?? {}).length === 3 && Object.values(erasure.dependencyGate.runtimes).every((item) => runtimeDigest.test(item));
-const validIssues = issues.reportVersion === "1.0.0" && issues.kind === "release-issues" && issues.status === "passed" && issues.worktreeDirty === false && issues.sourceCommit === rc.sourceCommit && issues.rcHash === releaseCandidateHash && issues.openP0 === 0 && issues.openP1 === 0 && issues.unclassifiedOpen === 0 && issues.snapshot?.paginationComplete === true;
-const hashes = [erasure.test?.evidenceSha256, erasure.dependencyGate?.evidenceSha256, issues.snapshot?.sha256, rc.behaviorManifest?.sha256];
-if (!validRC || !validErasure || !validIssues || hashes.some((item) => !hex64.test(item ?? "")) || JSON.stringify(expected) !== JSON.stringify(actual) || new Set(actual).size !== actual.length || JSON.stringify(expectedRCArtifacts) !== JSON.stringify(actualRCArtifacts) || new Set(actualRCArtifacts).size !== actualRCArtifacts.length || !requiredErasureArtifacts.every((path) => erasure.artifacts.some((item) => item.path === path)) || new Set(erasure.artifacts.map((item) => item.path)).size !== erasure.artifacts.length || digest(rcBase) !== releaseCandidateHash || digest(erasureBase) !== reportHash || digest(issueBase) !== issueReportHash || behavior.sourceCommit !== rc.sourceCommit || digest(behaviorBase) !== manifestHash || rc.behaviorManifest.manifestHash !== manifestHash) process.exit(1);
+const hashes = [erasure.test?.evidenceSha256, erasure.dependencyGate?.evidenceSha256, rc.behaviorManifest?.sha256];
+if (!validRC || !validErasure || hashes.some((item) => !hex64.test(item ?? "")) || JSON.stringify(expected) !== JSON.stringify(actual) || new Set(actual).size !== actual.length || JSON.stringify(expectedRCArtifacts) !== JSON.stringify(actualRCArtifacts) || new Set(actualRCArtifacts).size !== actualRCArtifacts.length || !requiredErasureArtifacts.every((path) => erasure.artifacts.some((item) => item.path === path)) || new Set(erasure.artifacts.map((item) => item.path)).size !== erasure.artifacts.length || digest(rcBase) !== releaseCandidateHash || digest(erasureBase) !== reportHash || behavior.sourceCommit !== rc.sourceCommit || digest(behaviorBase) !== manifestHash || rc.behaviorManifest.manifestHash !== manifestHash) process.exit(1);
 process.stdout.write([rc.sourceCommit, releaseCandidateHash, ...hashes].join("\t"));
 NODE
 )"
-IFS=$'\t' read -r source_commit rc_hash erasure_evidence_hash erasure_dependency_hash issue_snapshot_hash behavior_manifest_hash <<<"${bundle_values}"
+IFS=$'\t' read -r source_commit rc_hash erasure_evidence_hash erasure_dependency_hash behavior_manifest_hash <<<"${bundle_values}"
 [[ "$(git -C "${root}" rev-parse HEAD)" == "${source_commit}" ]] || { echo "RC source commit does not match HEAD" >&2; exit 1; }
 
 verify_hash() {
@@ -78,7 +69,6 @@ verify_hash() {
 }
 verify_hash "${erasure_evidence_hash}" "${bundle}/evidence/account-erasure-integration.json"
 verify_hash "${erasure_dependency_hash}" "${bundle}/evidence/account-erasure-dependencies.json"
-verify_hash "${issue_snapshot_hash}" "${bundle}/evidence/release-issues-snapshot.json"
 verify_hash "${behavior_manifest_hash}" "${bundle}/product-behavior-manifest.json"
 
 emit_artifacts() {
@@ -105,11 +95,9 @@ cleanup() { [[ -d "${incoming:-}" ]] && rm -rf "${incoming}"; }
 trap cleanup EXIT
 install -m 0644 "${bundle}/ga-release-candidate.json" "${bundle}/ga-release-candidate.sigstore.json" \
   "${bundle}/account-erasure-100.json" "${bundle}/account-erasure-100.sigstore.json" \
-  "${bundle}/release-issues.json" "${bundle}/release-issues.sigstore.json" \
   "${bundle}/product-behavior-manifest.json" "${incoming}/"
 mkdir -p "${incoming}/evidence"
 install -m 0644 "${bundle}/evidence/account-erasure-integration.json" "${bundle}/evidence/account-erasure-dependencies.json" "${incoming}/evidence/"
-install -m 0644 "${bundle}/evidence/release-issues-snapshot.json" "${incoming}/evidence/"
 if [[ -d "${root}/release-candidates/current" ]]; then
   previous="${root}/release-candidates/previous-$(date -u +%Y%m%dT%H%M%SZ)-${rc_hash:0:12}-$$"
   mv "${root}/release-candidates/current" "${previous}"

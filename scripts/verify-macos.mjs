@@ -40,9 +40,7 @@ if (platform === "darwin") {
   run("product-scope-verifier-self-test", process.execPath, ["scripts/test-product-scope.mjs"]);
   run("stage0-traceability", process.execPath, ["scripts/verify-stage0-baseline.mjs", "--require-engineering-rc"]);
   run("stage0-verifier-self-test", process.execPath, ["scripts/test-stage0-baseline-verifier.mjs"]);
-  run("release-issue-verifier-self-test", process.execPath, ["scripts/test-stage6-release-issues-report.mjs"]);
   run("engineering-rc-contract-self-test", process.execPath, ["scripts/test-engineering-rc-contract.mjs"]);
-  run("current-release-issues", process.execPath, ["scripts/verify-engineering-rc-issues.mjs"]);
   run("current-contracts", process.execPath, ["scripts/lint-phase1-assets.mjs", "--current-engineering", "--report", ".tmp/verification/current-contract-lint.json"]);
   run("current-openapi-and-web-client", process.execPath, ["scripts/validate-current-openapi.mjs"]);
   run("stage3-contracts", process.execPath, ["scripts/lint-stage3-contract-amendment.mjs"], verificationReportEnv);

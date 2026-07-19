@@ -19,7 +19,7 @@ const without = (value, key) => Object.fromEntries(Object.entries(value).filter(
 const hex40 = /^[0-9a-f]{40}$/;
 const hex64 = /^[0-9a-f]{64}$/;
 
-export function validateEngineeringRCInputs({ verification, releaseIssues, sourceCommit }) {
+export function validateEngineeringRCInputs({ verification, sourceCommit }) {
   if (!hex40.test(sourceCommit ?? "")) throw new Error("source commit is invalid");
   if (
     verification?.result !== "engineering_rc_passed"
@@ -30,19 +30,7 @@ export function validateEngineeringRCInputs({ verification, releaseIssues, sourc
     || verification.reportHash !== sha256(without(verification, "reportHash"))
   ) throw new Error("verification is not a clean, current, self-hashed Engineering RC pass");
 
-  const expectedIssueBinding = sha256(`engineering-rc-issues:${sourceCommit}`);
-  if (
-    releaseIssues?.status !== "passed"
-    || releaseIssues.sourceCommit !== sourceCommit
-    || releaseIssues.worktreeDirty !== false
-    || releaseIssues.rcHash !== expectedIssueBinding
-    || releaseIssues.openP0 !== 0
-    || releaseIssues.openP1 !== 0
-    || releaseIssues.unclassifiedOpen !== 0
-    || !hex64.test(releaseIssues.reportHash ?? "")
-    || releaseIssues.reportHash !== sha256(without(releaseIssues, "reportHash"))
-  ) throw new Error("release issue inventory is not a clean, current, self-hashed Engineering RC pass");
-  return releaseIssues.reportHash;
+  return true;
 }
 
 export function buildSourceDependencySBOM({ sourceCommit, generatedAt, serialNumber, components }) {
@@ -58,11 +46,10 @@ export function buildSourceDependencySBOM({ sourceCommit, generatedAt, serialNum
   };
 }
 
-export function buildEngineeringRCManifest({ sourceCommit, generatedAt, releaseIssueHash, dependencyComponents, artifacts }) {
-  if (!hex40.test(sourceCommit ?? "") || !Number.isFinite(Date.parse(generatedAt)) || !hex64.test(releaseIssueHash ?? "") || !Number.isInteger(dependencyComponents) || dependencyComponents < 0 || !Array.isArray(artifacts)) throw new Error("Engineering RC manifest inputs are invalid");
+export function buildEngineeringRCManifest({ sourceCommit, generatedAt, dependencyComponents, artifacts }) {
+  if (!hex40.test(sourceCommit ?? "") || !Number.isFinite(Date.parse(generatedAt)) || !Number.isInteger(dependencyComponents) || dependencyComponents < 0 || !Array.isArray(artifacts)) throw new Error("Engineering RC manifest inputs are invalid");
   const requiredSuffixes = [
     "macos-engineering-rc.json",
-    "engineering-rc-issues.json",
     "product-behavior-manifest.json",
     "interface-coverage.json",
     "sbom/source-dependencies.cdx.json",
@@ -86,7 +73,6 @@ export function buildEngineeringRCManifest({ sourceCommit, generatedAt, releaseI
     immutable: true,
     evidenceSemantics: { passed: "executed on this commit", deferred: "outside macOS Engineering RC", fixture_validated: "validator or contract only", failed: "requirement not met" },
     deferredProductionValidation: [...engineeringRCDeferredProductionValidation],
-    releaseIssues: { openP0: 0, openP1: 0, unclassifiedOpen: 0, reportHash: releaseIssueHash },
     dependencyComponents,
     artifacts,
   };

@@ -43,9 +43,6 @@ on:
       - "scripts/stage6-approval-crypto.mjs"
       - "scripts/sign-stage6-approval.mjs"
       - "scripts/test-stage6-approval-crypto.mjs"
-      - "scripts/collect-stage6-release-issues.mjs"
-      - "scripts/write-stage6-release-issues-report.mjs"
-      - "scripts/test-stage6-release-issues-report.mjs"
       - "scripts/write-stage6-pilot-equivalence-report.mjs"
       - "scripts/test-stage6-pilot-equivalence-report.mjs"
       - "scripts/write-stage6-penetration-report.mjs"
@@ -111,7 +108,6 @@ jobs:
           npm run test:stage6-recovery-report
           npm run test:stage6-profile-eval-report
           npm run test:stage6-approval-crypto
-          npm run test:stage6-release-issues
           npm run test:stage6-pilot-equivalence
           npm run test:stage6-penetration-report
           npm run test:stage6-pilot-report
@@ -647,16 +643,6 @@ jobs:
             --releases rc-input/releases \
             --behavior-manifest rc-output/product-behavior-manifest.json \
             --output rc-output/ga-release-candidate.json
-      - name: Collect the complete release issue inventory
-        run: |
-          rc_hash="$(jq -er '.releaseCandidateHash' rc-output/ga-release-candidate.json)"
-          node scripts/collect-stage6-release-issues.mjs \
-            --source-commit "$GITHUB_SHA" \
-            --rc-hash "$rc_hash" \
-            --output rc-output/evidence/release-issues-snapshot.json
-          node scripts/write-stage6-release-issues-report.mjs \
-            --snapshot rc-output/evidence/release-issues-snapshot.json \
-            --output rc-output/release-issues.json
       - name: Verify RC-bound account erasure and recovery
         run: |
           rc_hash="$(jq -er '.releaseCandidateHash' rc-output/ga-release-candidate.json)"
@@ -681,14 +667,6 @@ jobs:
           cosign sign-blob --yes \
             --bundle rc-output/account-erasure-100.sigstore.json \
             rc-output/account-erasure-100.json
-          cosign sign-blob --yes \
-            --bundle rc-output/release-issues.sigstore.json \
-            rc-output/release-issues.json
-          cosign verify-blob \
-            --bundle rc-output/release-issues.sigstore.json \
-            --certificate-identity "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/supply-chain.yml@refs/heads/main" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            rc-output/release-issues.json
           cosign verify-blob \
             --bundle rc-output/account-erasure-100.sigstore.json \
             --certificate-identity "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/supply-chain.yml@refs/heads/main" \

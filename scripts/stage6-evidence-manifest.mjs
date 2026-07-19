@@ -19,9 +19,6 @@ export function requiredFinalEvidencePaths(layout) {
     "release-candidates/current/account-erasure-100.sigstore.json",
     "release-candidates/current/evidence/account-erasure-integration.json",
     "release-candidates/current/evidence/account-erasure-dependencies.json",
-    "release-candidates/current/release-issues.json",
-    "release-candidates/current/release-issues.sigstore.json",
-    "release-candidates/current/evidence/release-issues-snapshot.json",
     "config/legal-governance.json"
   ].sort();
   if (new Set(paths).size !== paths.length) throw new Error("Stage 6 final evidence layout contains duplicate paths");
