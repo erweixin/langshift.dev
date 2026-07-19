@@ -91,7 +91,7 @@ check("ENTITLEMENT-FIXTURES", entitlementFixtures.baseFixtureVersion === "1.18.0
 const failures = results.filter((result) => result.status === "failed");
 const base = { reportVersion: "1.1.0", stage: 5, kind: "contract-control-plane-contract", generatedAt: new Date().toISOString(), status: failures.length ? "failed" : "passed", summary: { checks: results.length, passed: results.length - failures.length, failed: failures.length }, openAPIHash: hash(contract), eventRegistryHash: hash(events), fixtureHash: hash(fixtures), entitlementOpenAPIHash: hash(entitlementContract), entitlementEventRegistryHash: hash(entitlementEvents), entitlementFixtureHash: hash(entitlementFixtures), results };
 const report = { ...base, reportHash: hash(base) };
-const target = resolve(root, "gate-reports/stage-5/contract-control-plane-contract.json");
+const target = resolve(root, process.env.LITES_GATE_REPORT_ROOT ?? "gate-reports", "stage-5/contract-control-plane-contract.json");
 await mkdir(dirname(target), { recursive: true });
 await writeFile(target, `${JSON.stringify(report, null, 2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} checks; report ${report.reportHash}`);

@@ -55,6 +55,9 @@ func (writer PayloadEvidence) put(ctx context.Context, tenantID string, authoriz
 	if err != nil {
 		return llmpostgres.PayloadPointer{}, err
 	}
-	manifest, err := writer.Payloads.Put(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: authorization.AttemptID + ":" + suffix, Class: "event-payload", ContentType: "application/json"}, encoded)
+	// ObjectID becomes part of the immutable S3 key. Keep it within the
+	// repository's portable object-key alphabet; ':' passed memory-store tests
+	// but is rejected by the production s3store boundary.
+	manifest, err := writer.Payloads.Put(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: authorization.AttemptID + "-" + suffix, Class: "event-payload", ContentType: "application/json"}, encoded)
 	return llmpostgres.PayloadPointer{Ref: manifest.Ref, Hash: manifest.Hash}, err
 }

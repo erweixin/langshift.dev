@@ -16,21 +16,43 @@ import (
 )
 
 type DailyTaskResource struct {
-	ID, MissionID, RouteRevisionID string          `json:"id"`
-	Version                        uint64          `json:"version"`
-	Status                         string          `json:"status"`
-	PracticeKind                   string          `json:"practice_kind"`
-	Task                           json.RawMessage `json:"task"`
-	EstimatedMinutes               int             `json:"estimated_minutes"`
-	Difficulty                     string          `json:"difficulty"`
-	FocusVersion                   uint64          `json:"focus_version"`
-	ScheduledFor                   string          `json:"scheduled_for"`
-	RescheduledTo                  *string         `json:"rescheduled_to"`
-	CurrentSubmissionID            *string         `json:"current_submission_id"`
-	CurrentReviewID                *string         `json:"current_review_id"`
-	CompletedAt                    *time.Time      `json:"completed_at"`
-	CreatedAt                      time.Time       `json:"created_at"`
-	UpdatedAt                      time.Time       `json:"updated_at"`
+	ID                  string                  `json:"id"`
+	MissionID           string                  `json:"mission_id"`
+	RouteRevisionID     string                  `json:"route_revision_id"`
+	Version             uint64                  `json:"version"`
+	Status              string                  `json:"status"`
+	PracticeKind        string                  `json:"practice_kind"`
+	Task                json.RawMessage         `json:"task"`
+	EstimatedMinutes    int                     `json:"estimated_minutes"`
+	Difficulty          string                  `json:"difficulty"`
+	FocusVersion        uint64                  `json:"focus_version"`
+	ScheduledFor        string                  `json:"scheduled_for"`
+	RescheduledTo       *string                 `json:"rescheduled_to"`
+	CurrentSubmissionID *string                 `json:"current_submission_id"`
+	CurrentReviewID     *string                 `json:"current_review_id"`
+	ReviewRecovery      *ReviewRecoveryResource `json:"review_recovery"`
+	CompletedAt         *time.Time              `json:"completed_at"`
+	CreatedAt           time.Time               `json:"created_at"`
+	UpdatedAt           time.Time               `json:"updated_at"`
+}
+
+// ReviewRecoveryResource is the durable continuation point for the
+// Submission -> Evaluator Run -> Review -> Evidence sequence. It deliberately
+// excludes submitted plaintext and only exposes identifiers and lifecycle
+// state owned by the authenticated user.
+type ReviewRecoveryResource struct {
+	SubmissionID          string     `json:"submission_id"`
+	SubmissionRevision    int        `json:"submission_revision"`
+	GenerationID          *string    `json:"generation_id"`
+	RunID                 *string    `json:"run_id"`
+	RubricVersionID       *string    `json:"rubric_version_id"`
+	GenerationStatus      *string    `json:"generation_status"`
+	ReviewID              *string    `json:"review_id"`
+	EvidenceID            *string    `json:"evidence_id"`
+	FailureReason         *string    `json:"failure_reason"`
+	GenerationCreatedAt   *time.Time `json:"generation_created_at"`
+	GenerationUpdatedAt   *time.Time `json:"generation_updated_at"`
+	GenerationCompletedAt *time.Time `json:"generation_completed_at"`
 }
 
 type DailyTaskListQuery struct{ TenantID, UserID, Cursor string }

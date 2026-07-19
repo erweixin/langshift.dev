@@ -54,7 +54,7 @@ check("SLA-RUNBOOK", supportRunbook.includes("support_tier") && supportRunbook.i
 const failures = results.filter((result) => result.status === "failed");
 const base = { reportVersion: "1.0.0", stage: 5, kind: "enterprise-completion-contract", generatedAt: new Date().toISOString(), status: failures.length ? "failed" : "passed", summary: { checks: results.length, passed: results.length - failures.length, failed: failures.length }, auditOpenAPIHash: hash(auditAPI), taskOpenAPIHash: hash(taskAPI), auditEventHash: hash(auditEvents), taskEventHash: hash(taskEvents), results };
 const report = { ...base, reportHash: hash(base) };
-const target = resolve(root, "gate-reports/stage-5/enterprise-completion-contract.json");
+const target = resolve(root, process.env.LITES_GATE_REPORT_ROOT ?? "gate-reports", "stage-5/enterprise-completion-contract.json");
 await mkdir(dirname(target), { recursive: true });
 await writeFile(target, `${JSON.stringify(report, null, 2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} checks; report ${report.reportHash}`);

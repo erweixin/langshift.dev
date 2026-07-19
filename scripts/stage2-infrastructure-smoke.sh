@@ -39,7 +39,7 @@ node "${root}/scripts/validate-stage2-foundation-compose.mjs" "${runtime}/resolv
 
 postgres_password="$(<"${POSTGRES_PASSWORD_FILE}")"
 postgres_counts="$({ "${compose[@]}" exec -T -e PGPASSWORD="${postgres_password}" postgres psql -U postgres -d lites -Atc "SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname IN ('identity','product','agent','contracts')) || ':' || (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname IN ('identity','product','agent','contracts') AND c.relrowsecurity AND c.relforcerowsecurity);"; } 2>/dev/null)"
-[[ "${postgres_counts}" == "92:85" ]]
+[[ "${postgres_counts}" == "93:86" ]]
 "${compose[@]}" exec -T -e PGPASSWORD="${postgres_password}" postgres psql -v ON_ERROR_STOP=1 -U postgres -d lites -c "CREATE TEMP TABLE infrastructure_smoke(value text NOT NULL); INSERT INTO infrastructure_smoke VALUES ('postgres-ok'); SELECT value FROM infrastructure_smoke;" >/dev/null
 
 nats_url="nats://${NATS_USER}:${NATS_PASSWORD}@nats:4222"
@@ -98,7 +98,8 @@ grep -q 'foundation-smoke' "${runtime}/tempo-trace.json"
 if [[ -n "${INFRASTRUCTURE_REPORT_SOURCE_COMMIT:-}" ]]; then
   node "${root}/scripts/write-stage2-infrastructure-report.mjs" \
     --source-commit "${INFRASTRUCTURE_REPORT_SOURCE_COMMIT}" \
-    --resolved-compose "${runtime}/resolved-compose.json"
+    --resolved-compose "${runtime}/resolved-compose.json" \
+    --postgres-counts "${postgres_counts}"
 fi
 
 printf 'stage-2 infrastructure smoke: postgres=%s jetstream=1 valkey=1 s3=1 vault=1 otlp_trace=1 observability=4 status=passed\n' "${postgres_counts}"

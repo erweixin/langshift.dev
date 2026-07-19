@@ -140,7 +140,8 @@ func (value config) validate() error {
 	seen := map[string]struct{}{}
 	for _, origin := range value.publicOrigins {
 		parsed, parseErr := url.Parse(origin)
-		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || origin != parsed.Scheme+"://"+parsed.Host {
+		engineeringLoopbackHTTP := parseErr == nil && value.allowInsecureDevelopment && value.environment == "engineering-test" && parsed.Scheme == "http" && isLoopback(parsed.Hostname())
+		if parseErr != nil || parsed.Scheme != "https" && !engineeringLoopbackHTTP || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || origin != parsed.Scheme+"://"+parsed.Host {
 			return errors.New("PUBLIC_ORIGINS contains an invalid origin")
 		}
 		if _, exists := seen[origin]; exists {

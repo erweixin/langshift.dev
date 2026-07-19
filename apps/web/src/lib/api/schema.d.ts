@@ -261,6 +261,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/account/export-requests/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** account export get */
+        get: operations["account.export.get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/account/export-requests/{export_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** account export download */
+        get: operations["account.export.download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/account/erasure-requests": {
         parameters: {
             query?: never;
@@ -388,46 +422,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** missions list */
-        get: operations["missions.list"];
+        /** missions list v2 */
+        get: operations["missions.list.v2"];
         put?: never;
-        /** missions create */
-        post: operations["missions.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/missions/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** missions get */
-        get: operations["missions.get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** missions update */
-        patch: operations["missions.update"];
-        trace?: never;
-    };
-    "/v1/missions/{id}/focus": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** missions focus */
-        put: operations["missions.focus"];
-        post?: never;
+        /** missions create v2 */
+        post: operations["missions.create.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -441,28 +440,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** routes list */
-        get: operations["routes.list"];
+        /** routes list v2 */
+        get: operations["routes.list.v2"];
         put?: never;
-        /** routes generate */
-        post: operations["routes.generate"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/route-revisions/{id}/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** routes accept */
-        post: operations["routes.accept"];
+        /** routes generate v2 */
+        post: operations["routes.generate.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -511,11 +493,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** evidence list */
-        get: operations["evidence.list"];
+        /** evidence list v2 */
+        get: operations["evidence.list.v2"];
         put?: never;
-        /** evidence record */
-        post: operations["evidence.record"];
+        /** evidence record v2 */
+        post: operations["evidence.record.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -529,8 +511,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** tasks list */
-        get: operations["tasks.list"];
+        /** tasks list v2 */
+        get: operations["tasks.list.v2"];
         put?: never;
         /** tasks generate */
         post: operations["tasks.generate"];
@@ -538,23 +520,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/v1/daily-tasks/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** tasks update */
-        patch: operations["tasks.update"];
         trace?: never;
     };
     "/v1/submissions": {
@@ -566,25 +531,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** submissions create */
-        post: operations["submissions.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/reviews/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** reviews get */
-        get: operations["reviews.get"];
-        put?: never;
-        post?: never;
+        /** submissions create v2 */
+        post: operations["submissions.create.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -600,8 +548,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** reviews generate */
-        post: operations["reviews.generate"];
+        /** reviews generate v2 */
+        post: operations["reviews.generate.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -615,114 +563,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** projects list */
-        get: operations["projects.list"];
+        /** projects list v2 */
+        get: operations["projects.list.v2"];
         put?: never;
-        /** projects create */
-        post: operations["projects.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** projects update */
-        patch: operations["projects.update"];
-        trace?: never;
-    };
-    "/v1/projects/{id}/milestones": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** milestones create */
-        post: operations["milestones.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{id}/milestones/{milestone_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** milestones update */
-        patch: operations["milestones.update"];
-        trace?: never;
-    };
-    "/v1/projects/{id}/workspace": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** workspace get */
-        get: operations["workspace.get"];
-        put?: never;
-        /** workspace bind */
-        post: operations["workspace.bind"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{id}/test-runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** projects test */
-        post: operations["projects.test"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/projects/{id}/completion": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** projects complete */
-        post: operations["projects.complete"];
+        /** projects create v2 */
+        post: operations["projects.create.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -772,8 +617,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** portfolio export */
-        post: operations["portfolio.export"];
+        /** portfolio-exports request v2 */
+        post: operations["portfolio-exports.request.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -806,26 +651,9 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** share_grants create */
-        post: operations["share_grants.create"];
+        /** share-grants create v2 */
+        post: operations["share-grants.create.v2"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/share-grants/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** share_grants revoke */
-        delete: operations["share_grants.revoke"];
         options?: never;
         head?: never;
         patch?: never;
@@ -838,15 +666,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** preferences get */
-        get: operations["preferences.get"];
+        /** preferences get v2 */
+        get: operations["preferences.get.v2"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** preferences update */
-        patch: operations["preferences.update"];
+        /** preferences update v2 */
+        patch: operations["preferences.update.v2"];
         trace?: never;
     };
     "/v1/reminder-schedules": {
@@ -856,32 +684,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** reminders list v2 */
+        get: operations["reminders.list.v2"];
         put?: never;
-        /** reminders create */
-        post: operations["reminders.create"];
+        /** reminders create v2 */
+        post: operations["reminders.create.v2"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/v1/reminder-schedules/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** reminders cancel */
-        delete: operations["reminders.cancel"];
-        options?: never;
-        head?: never;
-        /** reminders update */
-        patch: operations["reminders.update"];
         trace?: never;
     };
     "/v1/byok-credentials": {
@@ -1235,29 +1046,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** admin programs create */
-        post: operations["admin.programs.create"];
+        /** admin programs create v2 */
+        post: operations["admin.programs.create.v2"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/programs/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** admin programs update */
-        patch: operations["admin.programs.update"];
         trace?: never;
     };
     "/v1/admin/cohorts": {
@@ -1269,43 +1063,9 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** admin cohorts create */
-        post: operations["admin.cohorts.create"];
+        /** admin cohorts create v2 */
+        post: operations["admin.cohorts.create.v2"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/cohorts/{id}/enrollments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** admin cohorts enroll */
-        post: operations["admin.cohorts.enroll"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/cohorts/{id}/enrollments/{user_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** admin cohorts unenroll */
-        delete: operations["admin.cohorts.unenroll"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1320,8 +1080,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** admin role_packs publish */
-        post: operations["admin.role_packs.publish"];
+        /** admin role-packs publish v2 */
+        post: operations["admin.role-packs.publish.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1337,25 +1097,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** admin contracts propose */
-        post: operations["admin.contracts.propose"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/contracts/{id}/approval-decisions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** admin contracts decide */
-        post: operations["admin.contracts.decide"];
+        /** admin contracts propose v2 */
+        post: operations["admin.contracts.propose.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1371,8 +1114,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** admin entitlements propose */
-        post: operations["admin.entitlements.propose"];
+        /** admin entitlements propose v2 */
+        post: operations["admin.entitlements.propose.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1386,8 +1129,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** admin usage get */
-        get: operations["admin.usage.get"];
+        /** admin usage read v2 */
+        get: operations["admin.usage.read.v2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1473,8 +1216,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** admin aggregates query */
-        post: operations["admin.aggregates.query"];
+        /** admin aggregate-queries query v2 */
+        post: operations["admin.aggregate-queries.query.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1488,8 +1231,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** admin audit list */
-        get: operations["admin.audit.list"];
+        /** admin audit read v2 */
+        get: operations["admin.audit.read.v2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1507,8 +1250,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** admin audit export */
-        post: operations["admin.audit.export"];
+        /** admin audit-exports request v2 */
+        post: operations["admin.audit-exports.request.v2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1566,6 +1309,573 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/behavior/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** behavior snapshots create */
+        post: operations["behavior.snapshots.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/behavior/evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** behavior evaluations record */
+        post: operations["behavior.evaluations.record"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/behavior/promotions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** behavior promotions create */
+        post: operations["behavior.promotions.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/behavior/channels/{profile}/{environment}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** behavior channels current */
+        get: operations["behavior.channels.current"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/behavior/rollbacks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** behavior rollbacks automatic */
+        post: operations["behavior.rollbacks.automatic"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/missions/{mission_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** missions get v2 */
+        get: operations["missions.get.v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** missions update v2 */
+        patch: operations["missions.update.v2"];
+        trace?: never;
+    };
+    "/v1/missions/{mission_id}/focus": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** missions focus v2 */
+        put: operations["missions.focus.v2"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/route-revisions/{route_revision_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** routes accept v2 */
+        post: operations["routes.accept.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/daily-tasks/{daily_task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** tasks update v2 */
+        patch: operations["tasks.update.v2"];
+        trace?: never;
+    };
+    "/v1/reviews/{review_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** reviews get v2 */
+        get: operations["reviews.get.v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reminder-schedules/{schedule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** reminders cancel */
+        delete: operations["reminders.cancel"];
+        options?: never;
+        head?: never;
+        /** reminders update v2 */
+        patch: operations["reminders.update.v2"];
+        trace?: never;
+    };
+    "/v1/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** projects get v2 */
+        get: operations["projects.get.v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** projects update v2 */
+        patch: operations["projects.update.v2"];
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/milestones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** milestones create v2 */
+        post: operations["milestones.create.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/milestones/{milestone_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** milestones transition v2 */
+        patch: operations["milestones.transition.v2"];
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** projects workspace get v2 */
+        get: operations["projects.workspace.get.v2"];
+        put?: never;
+        /** projects workspace bind v2 */
+        post: operations["projects.workspace.bind.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** projects workspace advance v2 */
+        patch: operations["projects.workspace.advance.v2"];
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/test-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** projects test generate v2 */
+        post: operations["projects.test.generate.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/completion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** projects complete v2 */
+        post: operations["projects.complete.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/portfolio-exports/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** portfolio-exports get v2 */
+        get: operations["portfolio-exports.get.v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/share-grants/{grant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** share-grants revoke v2 */
+        delete: operations["share-grants.revoke.v2"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/programs/{program_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** admin programs update v2 */
+        patch: operations["admin.programs.update.v2"];
+        trace?: never;
+    };
+    "/v1/admin/cohorts/{cohort_id}/enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** admin cohorts enroll v2 */
+        post: operations["admin.cohorts.enroll.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/cohorts/{cohort_id}/enrollments/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** admin cohorts unenroll v2 */
+        delete: operations["admin.cohorts.unenroll.v2"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/contracts/{proposal_id}/approval-decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** admin contracts decide v2 */
+        post: operations["admin.contracts.decide.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/usage/adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** admin usage adjustments propose v2 */
+        post: operations["admin.usage.adjustments.propose.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/usage/adjustments/{proposal_id}/approval-decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** admin usage adjustments decide v2 */
+        post: operations["admin.usage.adjustments.decide.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/entitlements/{proposal_id}/approval-decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** admin entitlements decide v2 */
+        post: operations["admin.entitlements.decide.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/reauthentication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** auth reauthentication create v1 */
+        post: operations["auth.reauthentication.create.v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/support/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** support cases list v2 */
+        get: operations["support.cases.list.v2"];
+        put?: never;
+        /** support cases create v2 */
+        post: operations["support.cases.create.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/support/cases/{case_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** support cases get v2 */
+        get: operations["support.cases.get.v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/support/cases/{case_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** support cases reply v2 */
+        post: operations["support.cases.reply.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/public/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** public status get v1 */
+        get: operations["public.status.get.v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/audit-exports/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** admin audit-exports download v2 */
+        get: operations["admin.audit-exports.download.v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/task-packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** admin task-packs publish v2 */
+        post: operations["admin.task-packs.publish.v2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1589,6 +1899,62 @@ export interface components {
             created_at: string;
         } & {
             [key: string]: unknown;
+        };
+        CapabilityClaimResource: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            revision_id: string;
+            version: number;
+            /** Format: uuid */
+            mission_id: string;
+            /** Format: uuid */
+            capability_id: string;
+            /** @enum {unknown} */
+            status: "active" | "disputed" | "superseded" | "withdrawn" | "rejected";
+            /** @enum {unknown} */
+            origin: "inferred" | "user_asserted" | "system_derived" | "reviewer_asserted";
+            /** @enum {unknown} */
+            verification_level: "inferred" | "user_confirmed" | "demonstrated" | "applied" | "reviewer_verified";
+            statement: string;
+            reason: string | null;
+            evidence_ids: string[];
+            /** Format: date-time */
+            recorded_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        RouteRevisionResource: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** Format: uuid */
+            mission_id: string;
+            route_version: number;
+            base_route_version: number;
+            /** @enum {unknown} */
+            status: "generating" | "proposed" | "accepted" | "stale" | "superseded" | "failed";
+            claim_set_hash: string;
+            input_manifest: Record<string, never>;
+            route: Record<string, never> | null;
+            /** Format: uuid */
+            agent_profile_snapshot_id: string;
+            /** Format: uuid */
+            ontology_snapshot_id: string;
+            /** Format: uuid */
+            content_snapshot_id: string;
+            /** Format: uuid */
+            planner_command_id: string | null;
+            /** Format: uuid */
+            planner_run_id: string | null;
+            /** Format: date-time */
+            accepted_at: string | null;
+            stale_reason: string | null;
+            failure_reason: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         AuthRegisterResponse: {
             user_id: string;
@@ -1745,13 +2111,18 @@ export interface components {
             expected_session_version: number;
         };
         AccountGetResponse: {
+            /** Format: uuid */
             user_id: string;
             /** Format: email */
             normalized_email: string;
             email_verified: boolean;
             /** @enum {unknown} */
             locale: "en" | "zh-CN";
+            timezone: string;
+            display_name: string | null;
             version: number;
+            /** Format: date-time */
+            updated_at: string;
         };
         AccountUpdateResponse: {
             id: string;
@@ -1781,6 +2152,33 @@ export interface components {
             scope: ("account" | "missions" | "evidence" | "projects" | "conversations" | "memory" | "audit")[];
             /** @enum {unknown} */
             format: "json" | "zip";
+        };
+        AccountExportGetResponse: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "requested" | "ready" | "failed";
+            scope: ("account" | "missions" | "evidence" | "projects" | "conversations" | "memory" | "audit")[];
+            /** @enum {unknown} */
+            format: "json" | "zip";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** @enum {string|null} */
+            failure_code: "invalid_command" | "archive_too_large" | "legacy_failure" | null;
+        };
+        AccountExportDownloadResponse: {
+            id: string;
+            version: number;
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         AccountErasureCreateResponse: {
             id: string;
@@ -1844,12 +2242,12 @@ export interface components {
         };
         OnboardingUpdateRequest: {
             request_id: string;
-            current_role: string | null;
-            target_role: string | null;
-            experience_summary: string | null;
-            weekly_minutes: number | null;
             expected_onboarding_version: number;
-        };
+            current_role?: string;
+            target_role?: string;
+            experience_summary?: string;
+            weekly_minutes?: number;
+        } & (unknown | unknown | unknown | unknown);
         OnboardingRoutepreviewResponse: {
             run_id: string;
             /** @enum {unknown} */
@@ -1954,28 +2352,43 @@ export interface components {
             replacement_mission_id: string | null;
         };
         RoutesListResponse: {
-            items: components["schemas"]["Resource"][];
+            items: components["schemas"]["RouteRevisionResource"][];
             next_cursor: string | null;
         };
         RoutesGenerateResponse: {
-            run_id: string;
-            /** @enum {unknown} */
-            status: "accepted" | "queued";
-            /** Format: date-time */
-            accepted_at: string;
+            /** Format: uuid */
+            route_revision_id: string;
+            revision_version: number;
+            /** @constant */
+            status: "generating";
+            /** Format: uuid */
+            planner_command_id: string;
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
         };
         RoutesGenerateRequest: {
             request_id: string;
+            /** Format: uuid */
             mission_id: string;
-            claim_set_hash: string;
+            expected_claim_set_hash: string;
             expected_route_version: number;
         };
         RoutesAcceptResponse: {
-            id: string;
-            version: number;
-            status: string;
-            /** Format: date-time */
-            updated_at: string;
+            /** Format: uuid */
+            route_revision_id: string;
+            revision_version: number;
+            /** Format: uuid */
+            mission_id: string;
+            mission_version: number;
+            route_version: number;
+            /** Format: uuid */
+            current_route_revision_id: string;
+            /** @constant */
+            status: "accepted";
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
         };
         RoutesAcceptRequest: {
             request_id: string;
@@ -1983,15 +2396,22 @@ export interface components {
             expected_claim_set_hash: string;
         };
         ClaimsListResponse: {
-            items: components["schemas"]["Resource"][];
+            items: components["schemas"]["CapabilityClaimResource"][];
             next_cursor: string | null;
         };
         ClaimsCreateResponse: {
+            /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            revision_id: string;
             version: number;
             status: string;
+            claim_set_hash: string;
             /** Format: date-time */
             updated_at: string;
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
         };
         ClaimsCreateRequest: {
             request_id: string;
@@ -2003,11 +2423,18 @@ export interface components {
             evidence_ids: string[];
         };
         ClaimsReviseResponse: {
+            /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            revision_id: string;
             version: number;
             status: string;
+            claim_set_hash: string;
             /** Format: date-time */
             updated_at: string;
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
         };
         ClaimsReviseRequest: {
             request_id: string;
@@ -2016,7 +2443,14 @@ export interface components {
             reason: string;
             evidence_ids: string[];
             expected_claim_version: number;
-        };
+            /**
+             * Format: uuid
+             * @description Required only when action is correct.
+             */
+            capability_id?: string;
+            /** @description Required only when action is correct. */
+            statement?: string;
+        } & unknown;
         EvidenceListResponse: {
             items: components["schemas"]["Resource"][];
             next_cursor: string | null;
@@ -2380,48 +2814,92 @@ export interface components {
             expected_schedule_version: number;
         };
         ByokListResponse: {
-            items: components["schemas"]["Resource"][];
+            items: {
+                /** Format: uuid */
+                id: string;
+                version: number;
+                /** @enum {unknown} */
+                status: "pending_validation" | "active" | "invalid" | "revoked";
+                /** @enum {unknown} */
+                provider_id: "openai" | "anthropic" | "openai_compatible";
+                bound_host: string;
+                secret_hint: string;
+                /** Format: date-time */
+                last_validated_at: string | null;
+                /** Format: date-time */
+                updated_at: string;
+            }[];
             next_cursor: string | null;
         };
         ByokCreateResponse: {
+            /** Format: uuid */
             id: string;
             version: number;
-            status: string;
+            /** @constant */
+            status: "active";
+            /** @enum {unknown} */
+            provider_id: "openai" | "anthropic" | "openai_compatible";
+            bound_host: string;
+            secret_hint: string;
+            /** Format: date-time */
+            last_validated_at: string | null;
             /** Format: date-time */
             updated_at: string;
+            replayed: boolean;
         };
         ByokCreateRequest: {
             request_id: string;
             /** @enum {unknown} */
-            provider_id: "openai" | "anthropic" | "google" | "openai_compatible";
+            provider_id: "openai" | "anthropic" | "openai_compatible";
             /** Format: uri */
             endpoint: string | null;
             api_key: string;
         };
         ByokDeleteResponse: {
+            /** Format: uuid */
             id: string;
             version: number;
-            status: string;
+            /** @constant */
+            status: "revoked";
+            /** @enum {unknown} */
+            provider_id: "openai" | "anthropic" | "openai_compatible";
+            bound_host: string;
+            secret_hint: string;
+            /** Format: date-time */
+            last_validated_at: string | null;
             /** Format: date-time */
             updated_at: string;
+            replayed: boolean;
         };
         ByokDeleteRequest: {
             request_id: string;
             expected_credential_version: number;
         };
         MemorypolicyGetResponse: {
+            /** Format: uuid */
             id: string;
             version: number;
-            status: string;
+            /** @enum {unknown} */
+            status: "enabled" | "disabled";
+            enabled: boolean;
+            retention_days: number | null;
+            allowed_kinds: ("preference" | "goal" | "capability_context" | "learning_history")[];
             /** Format: date-time */
             updated_at: string;
+            replayed: boolean;
         };
         MemorypolicyUpdateResponse: {
+            /** Format: uuid */
             id: string;
             version: number;
-            status: string;
+            /** @enum {unknown} */
+            status: "enabled" | "disabled";
+            enabled: boolean;
+            retention_days: number | null;
+            allowed_kinds: ("preference" | "goal" | "capability_context" | "learning_history")[];
             /** Format: date-time */
             updated_at: string;
+            replayed: boolean;
         };
         MemorypolicyUpdateRequest: {
             request_id: string;
@@ -2530,7 +3008,27 @@ export interface components {
             updated_at: string;
         };
         TenantsListResponse: {
-            items: components["schemas"]["Resource"][];
+            items: {
+                /** Format: uuid */
+                id: string;
+                version: number;
+                /** @enum {unknown} */
+                kind: "personal" | "enterprise";
+                name: string;
+                /** @constant */
+                status: "active";
+                region: string;
+                /** Format: uuid */
+                membership_id: string;
+                membership_version: number;
+                /** @enum {unknown} */
+                role: "owner" | "admin" | "contract_admin" | "program_manager" | "reviewer" | "member";
+                active: boolean;
+                /** Format: date-time */
+                joined_at: string;
+                /** Format: date-time */
+                updated_at: string;
+            }[];
             next_cursor: string | null;
         };
         MembershipsListResponse: {
@@ -2772,54 +3270,93 @@ export interface components {
             as_of: string;
         };
         InternalUsageReserveResponse: {
+            /** Format: uuid */
             reservation_id: string;
             /** @constant */
             status: "reserved";
             reserved_units: number;
             /** Format: date-time */
             expires_at: string;
+            replayed: boolean;
         };
         InternalUsageReserveRequest: {
             request_id: string;
+            /** Format: uuid */
             tenant_id: string;
+            /** Format: uuid */
             user_id: string;
             operation_key: string;
             requested_units: number;
-            resource_kind: string;
+            /** @enum {unknown} */
+            resource_kind: "provider_attempt" | "tool_call";
+            /** Format: uuid */
+            subject_id: string;
+            subject_version: number;
             byok: boolean;
         };
         InternalUsageSettleResponse: {
+            /** Format: uuid */
             reservation_id: string;
             /** @constant */
             status: "settled";
             settled_units: number;
+            /** Format: uuid */
             ledger_entry_id: string;
+            replayed: boolean;
         };
         InternalUsageSettleRequest: {
             request_id: string;
+            /** Format: uuid */
+            tenant_id: string;
             actual_units: number;
             provider_cost_microunits: number;
-            provider_attempt_id: string | null;
-            expected_reservation_version: number;
+            /** Format: uuid */
+            provider_attempt_id: string;
+            /** @constant */
+            expected_reservation_version: 1;
         };
         InternalUsageReleaseResponse: {
+            /** Format: uuid */
             reservation_id: string;
             /** @constant */
             status: "released";
             released_units: number;
+            /** Format: uuid */
             ledger_entry_id: string;
+            replayed: boolean;
         };
         InternalUsageReleaseRequest: {
             request_id: string;
+            /** Format: uuid */
+            tenant_id: string;
             reason: string;
-            expected_reservation_version: number;
+            /** @constant */
+            expected_reservation_version: 1;
         };
         AdminAggregatesCreateResponse: {
+            /** Format: uuid */
             id: string;
-            version: number;
-            status: string;
+            /** @constant */
+            version: 1;
+            /** @constant */
+            status: "frozen";
+            /** @enum {unknown} */
+            metric_key: "active_members" | "task_completion_rate" | "weekly_loop_completion_rate" | "project_completion_rate" | "aggregate_credit_usage";
+            dimensions: {
+                [key: string]: string;
+            };
+            /** @enum {unknown} */
+            time_bucket: "week" | "month" | "quarter";
+            /** Format: date */
+            period_start: string;
+            /** Format: date */
+            period_end: string;
+            population_count: number;
+            cell_count: number;
+            source_high_watermark: string;
             /** Format: date-time */
-            updated_at: string;
+            frozen_at: string;
+            replayed: boolean;
         };
         AdminAggregatesCreateRequest: {
             request_id: string;
@@ -2912,6 +3449,1258 @@ export interface components {
             proposal_hash: string;
             target_version: number;
             permission_snapshot: string;
+        };
+        RealtimeEvent: {
+            id: string;
+            seq: number;
+            event_type: string;
+            event_schema_version: number;
+            aggregate_kind: string;
+            aggregate_id: string;
+            aggregate_version: number;
+            store_epoch: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** Format: date-time */
+            committed_at: string;
+            causation_id: string | null;
+            correlation_id: string;
+        };
+        EventsListResponseV2: {
+            events: components["schemas"]["RealtimeEvent"][];
+            high_watermark: number;
+            next_after_seq: number | null;
+        };
+        RealtimeControl: {
+            /** @enum {unknown} */
+            kind: "ready" | "heartbeat" | "reauth_required" | "authentication_expired" | "cursor_ahead" | "event_stream_inconsistent" | "stream_unavailable";
+            cursor: number;
+            retry_after_ms?: number;
+        };
+        /** @enum {string} */
+        BehaviorProfile: "route_planner" | "daily_planner" | "coach" | "evaluator" | "artifact_builder";
+        /** @enum {string} */
+        BehaviorEnvironment: "staging" | "production";
+        BehaviorDigest: string;
+        BehaviorSnapshotId: string;
+        BehaviorBindingV1: {
+            id: string;
+            version: string;
+            hash: components["schemas"]["BehaviorDigest"];
+        };
+        BehaviorManifestV1: {
+            /** @constant */
+            schema_version: 1;
+            profile: components["schemas"]["BehaviorProfile"];
+            model: components["schemas"]["BehaviorBindingV1"];
+            prompt: components["schemas"]["BehaviorBindingV1"];
+            tools: components["schemas"]["BehaviorBindingV1"][];
+            profile_definition: components["schemas"]["BehaviorBindingV1"];
+            guardrail_policy: components["schemas"]["BehaviorBindingV1"];
+            router_policy: components["schemas"]["BehaviorBindingV1"];
+            source_commit: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        BehaviorDimensionResultV1: {
+            id: string;
+            average_score: number;
+            acceptable_rate: number;
+        };
+        BehaviorSliceResultV1: {
+            /** @enum {string} */
+            language: "en" | "zh-CN";
+            dataset_hash: components["schemas"]["BehaviorDigest"];
+            sample_count: number;
+            dimensions: components["schemas"]["BehaviorDimensionResultV1"][];
+            minimum_group_acceptable: number;
+            deterministic_accuracy: number;
+            expert_agreement: number;
+            causal_reference_rate: number;
+            manifest_complete_rate: number;
+        };
+        BehaviorZeroToleranceV1: {
+            safety_failures: number;
+            authorization_failures: number;
+            secret_or_pii_leaks: number;
+            unsupported_confirmed_claims: number;
+            hallucinated_context_refs: number;
+            direct_model_capability_writes: number;
+            unsafe_unapproved_writes: number;
+        };
+        BehaviorEvaluationReportV1: {
+            /** @constant */
+            schema_version: 1;
+            report_id: string;
+            candidate_snapshot_id: components["schemas"]["BehaviorSnapshotId"];
+            baseline_snapshot_id: components["schemas"]["BehaviorSnapshotId"];
+            profile: components["schemas"]["BehaviorProfile"];
+            slices: components["schemas"]["BehaviorSliceResultV1"][];
+            reviewer_agreement: number;
+            dimension_regression: {
+                [key: string]: number;
+            };
+            zero_tolerance: components["schemas"]["BehaviorZeroToleranceV1"];
+            cost_microunits_p95: number;
+            cost_budget: number;
+            latency_millis_p95: number;
+            latency_budget: number;
+            /** Format: date-time */
+            evaluated_at: string;
+        };
+        BehaviorRolloutPolicyV1: {
+            percentages: number[];
+            observation_seconds: number;
+        };
+        BehaviorAutoRollbackPolicyV1: {
+            maximum_error_rate: number;
+            maximum_latency_ratio: number;
+            maximum_cost_ratio: number;
+            minimum_quality_ratio: number;
+            /** @constant */
+            zero_tolerance_enabled: true;
+        };
+        BehaviorApprovalV1: {
+            /** @enum {string} */
+            role: "risk_owner" | "release_owner";
+            approver_id: string;
+            key_id: string;
+            /** Format: date-time */
+            signed_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            signature: string;
+        };
+        BehaviorPromotionRequestV1: {
+            /** @constant */
+            schema_version: 1;
+            /** Format: uuid */
+            tenant_id: string;
+            environment: components["schemas"]["BehaviorEnvironment"];
+            profile: components["schemas"]["BehaviorProfile"];
+            sequence: number;
+            candidate_snapshot_id: components["schemas"]["BehaviorSnapshotId"];
+            previous_snapshot_id: components["schemas"]["BehaviorSnapshotId"];
+            manifest_hash: components["schemas"]["BehaviorDigest"];
+            evaluation_report_hash: components["schemas"]["BehaviorDigest"];
+            rollout: components["schemas"]["BehaviorRolloutPolicyV1"];
+            auto_rollback: components["schemas"]["BehaviorAutoRollbackPolicyV1"];
+            /** Format: date-time */
+            requested_at: string;
+            approvals: components["schemas"]["BehaviorApprovalV1"][];
+        };
+        BehaviorRollbackRequestV1: {
+            /** @constant */
+            schema_version: 1;
+            /** Format: uuid */
+            tenant_id: string;
+            environment: components["schemas"]["BehaviorEnvironment"];
+            profile: components["schemas"]["BehaviorProfile"];
+            sequence: number;
+            from_snapshot_id: components["schemas"]["BehaviorSnapshotId"];
+            to_snapshot_id: components["schemas"]["BehaviorSnapshotId"];
+            /** @enum {string} */
+            trigger: "zero_tolerance" | "error_rate" | "latency_ratio" | "cost_ratio" | "quality_ratio";
+            observed_value: number;
+            threshold: number;
+            incident_evidence_hash: components["schemas"]["BehaviorDigest"];
+            automation_key_id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            signature: string;
+        };
+        BehaviorSnapshotCreateRequestV1: {
+            request_id: string;
+            manifest: components["schemas"]["BehaviorManifestV1"];
+        };
+        BehaviorEvaluationCreateRequestV1: {
+            request_id: string;
+            report: components["schemas"]["BehaviorEvaluationReportV1"];
+        };
+        BehaviorPromotionCreateRequestV1: {
+            request_id: string;
+            promotion: components["schemas"]["BehaviorPromotionRequestV1"];
+        };
+        BehaviorRollbackCreateRequestV1: {
+            request_id: string;
+            rollback: components["schemas"]["BehaviorRollbackRequestV1"];
+        };
+        BehaviorMutationResultV1: {
+            /** Format: uuid */
+            id: string;
+            resource_id: string;
+            /** Format: uuid */
+            event_id: string;
+            hash: components["schemas"]["BehaviorDigest"];
+            sequence?: number;
+            replayed: boolean;
+        };
+        BehaviorChannelBindingV1: {
+            /** Format: uuid */
+            channel_id: string;
+            sequence: number;
+            snapshot_id: components["schemas"]["BehaviorSnapshotId"];
+            profile: components["schemas"]["BehaviorProfile"];
+            environment: components["schemas"]["BehaviorEnvironment"];
+            /** Format: date-time */
+            activated_at: string;
+        };
+        /** @enum {string} */
+        MissionStatusV2: "draft" | "active" | "paused" | "completed" | "archived";
+        MissionResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            status: components["schemas"]["MissionStatusV2"];
+            /** Format: uuid */
+            source_role_profile_id: string | null;
+            /** Format: uuid */
+            target_role_profile_id: string;
+            /** Format: uuid */
+            current_route_revision_id: string | null;
+            focused: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        MissionFocusV2: {
+            /** Format: uuid */
+            mission_id: string | null;
+            version: number;
+        };
+        MissionListResponseV2: {
+            items: components["schemas"]["MissionResourceV2"][];
+            focus: components["schemas"]["MissionFocusV2"];
+            next_cursor: string | null;
+        };
+        MissionStatusChangeRequestV2: {
+            request_id: string;
+            status: components["schemas"]["MissionStatusV2"];
+            /** Format: uuid */
+            replacement_mission_id: string | null;
+            expected_mission_version: number;
+            expected_focus_version: number;
+        };
+        MissionCreateRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            source_role_profile_id: string | null;
+            /** Format: uuid */
+            target_role_profile_id: string;
+            goal: string;
+        };
+        MissionFocusChangeRequestV2: {
+            request_id: string;
+            expected_focus_version: number;
+            replacement_mission_id: null;
+        };
+        MissionMutationResponseV2: {
+            mission: components["schemas"]["MissionResourceV2"];
+            focus: components["schemas"]["MissionFocusV2"];
+            event_ids: string[];
+            replayed: boolean;
+        };
+        /** @enum {string} */
+        RouteRevisionStatusV2: "generating" | "proposed" | "accepted" | "stale" | "superseded" | "failed";
+        RouteRevisionResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** Format: uuid */
+            mission_id: string;
+            route_version: number;
+            base_route_version: number;
+            status: components["schemas"]["RouteRevisionStatusV2"];
+            claim_set_hash: string;
+            input_manifest: Record<string, never>;
+            route: Record<string, never> | null;
+            agent_profile_snapshot_id: string;
+            ontology_snapshot_id: string;
+            content_snapshot_id: string;
+            /** Format: uuid */
+            planner_command_id: string | null;
+            /** Format: uuid */
+            planner_run_id: string | null;
+            /** Format: date-time */
+            accepted_at: string | null;
+            stale_reason: string | null;
+            failure_reason: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        RouteRevisionListResponseV2: {
+            items: components["schemas"]["RouteRevisionResourceV2"][];
+            next_cursor: string | null;
+        };
+        RouteGenerateRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            mission_id: string;
+            expected_route_version: number;
+            expected_claim_set_hash: string;
+        };
+        RouteGenerateResponseV2: {
+            /** Format: uuid */
+            route_revision_id: string;
+            revision_version: number;
+            /** @constant */
+            status: "generating";
+            /** Format: uuid */
+            planner_command_id: string;
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
+        };
+        RouteAcceptRequestV2: {
+            request_id: string;
+            expected_revision_version: number;
+            expected_route_version: number;
+            expected_claim_set_hash: string;
+        };
+        RouteAcceptResponseV2: {
+            /** Format: uuid */
+            route_revision_id: string;
+            revision_version: number;
+            /** Format: uuid */
+            mission_id: string;
+            mission_version: number;
+            route_version: number;
+            /** Format: uuid */
+            current_route_revision_id: string;
+            /** @constant */
+            status: "accepted";
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
+        };
+        DailyTaskResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** Format: uuid */
+            mission_id: string;
+            /** Format: uuid */
+            route_revision_id: string;
+            /** @enum {unknown} */
+            status: "scheduled" | "in_progress" | "submitted" | "reviewing" | "completed" | "skipped" | "rescheduled";
+            /** @enum {unknown} */
+            practice_kind: "code" | "writing" | "design";
+            task: Record<string, never>;
+            estimated_minutes: number;
+            /** @enum {unknown} */
+            difficulty: "easier" | "standard" | "harder";
+            focus_version: number;
+            /** Format: date */
+            scheduled_for: string;
+            /** Format: date */
+            rescheduled_to: string | null;
+            /** Format: uuid */
+            current_submission_id: string | null;
+            /** Format: uuid */
+            current_review_id: string | null;
+            review_recovery: components["schemas"]["ReviewRecoverySnapshotV2"] | null;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        DailyTaskListResponseV2: {
+            items: components["schemas"]["DailyTaskResourceV2"][];
+            next_cursor: string | null;
+        };
+        DailyTaskUpdateRequestV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            action: "start" | "skip" | "reschedule" | "lower_difficulty";
+            expected_task_version: number;
+            reschedule_for: "" | string;
+        };
+        DailyTaskMutationResponseV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "in_progress" | "skipped" | "rescheduled";
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
+        };
+        SubmissionCreateRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            daily_task_id: string;
+            expected_task_version: number;
+            /** @enum {unknown} */
+            submission_kind: "code" | "writing" | "design";
+            content: string;
+            understanding: string;
+        };
+        SubmissionResponseV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            submission_revision: number;
+            /** Format: uuid */
+            daily_task_id: string;
+            daily_task_version: number;
+            /** @constant */
+            status: "submitted";
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
+        };
+        ReviewGenerateRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            submission_id: string;
+            /** Format: uuid */
+            rubric_version_id: string;
+            expected_submission_revision: number;
+            expected_task_version: number;
+        };
+        ReviewGenerationResponseV2: {
+            /** Format: uuid */
+            generation_id: string;
+            /** Format: uuid */
+            run_id: string;
+            /** @enum {unknown} */
+            status: "accepted" | "queued";
+            /** Format: date-time */
+            accepted_at: string;
+            replayed: boolean;
+        };
+        ReviewResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** Format: uuid */
+            submission_id: string;
+            /** Format: uuid */
+            rubric_version_id: string;
+            /** Format: uuid */
+            daily_task_id: string;
+            submission_revision: number;
+            /** @constant */
+            status: "completed";
+            /** Format: uuid */
+            evidence_id: string;
+            review: Record<string, never>;
+            /** Format: date-time */
+            reviewed_at: string;
+        };
+        EvidenceRecordRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            mission_id: string;
+            evidence_type: string;
+            /** @enum {unknown} */
+            source_kind: "user_note" | "artifact" | "test_result";
+            /** Format: uuid */
+            source_id: string | null;
+            content: string;
+            content_hash: string;
+        };
+        EvidenceResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** Format: uuid */
+            mission_id: string;
+            evidence_type: string;
+            /** @enum {unknown} */
+            status: "recorded" | "verified" | "disputed" | "invalidated";
+            source_kind: string;
+            /** Format: uuid */
+            source_id: string | null;
+            content: Record<string, never>;
+            plaintext_hash: string;
+            /** Format: date-time */
+            recorded_at: string;
+        };
+        EvidenceListResponseV2: {
+            items: components["schemas"]["EvidenceResourceV2"][];
+            next_cursor: string | null;
+        };
+        EvidenceMutationResponseV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @constant */
+            status: "recorded";
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
+        };
+        CoachPreferencesV1: {
+            /** @constant */
+            schema_version: 1;
+            /** @enum {unknown} */
+            difficulty: "easier" | "standard" | "harder";
+            available_minutes: number;
+            /** @enum {unknown} */
+            tone: "encouraging" | "direct" | "socratic";
+            /** @enum {unknown} */
+            explanation_depth: "concise" | "balanced" | "deep";
+        };
+        PreferencesUpdateRequestV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            locale: "en" | "zh-CN";
+            /** @description IANA timezone name */
+            timezone: string;
+            coach_preferences: components["schemas"]["CoachPreferencesV1"];
+            expected_preferences_version: number;
+        };
+        PreferencesResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @constant */
+            status: "active";
+            /** @enum {unknown} */
+            locale: "en" | "zh-CN";
+            timezone: string;
+            coach_preferences: components["schemas"]["CoachPreferencesV1"];
+            /** Format: date-time */
+            updated_at: string;
+            replayed?: boolean;
+        };
+        ReminderCreateRequestV2: {
+            request_id: string;
+            /** @description IANA timezone name */
+            timezone: string;
+            local_time: string;
+            weekdays: number[];
+            /** @enum {unknown} */
+            channel: "email" | "push" | "in_app";
+        };
+        /** @description replace requires a complete valid schedule. pause, resume and cancel require empty schedule fields. */
+        ReminderUpdateRequestV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            action: "replace" | "pause" | "resume" | "cancel";
+            timezone: string;
+            local_time: string;
+            weekdays: number[];
+            channel: string;
+            expected_schedule_version: number;
+        };
+        ReminderResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "active" | "paused" | "cancelled" | "completed";
+            timezone: string;
+            local_time: string;
+            weekdays: number[];
+            /** @enum {unknown} */
+            channel: "email" | "push" | "in_app";
+            /** Format: date-time */
+            next_occurrence_at: string | null;
+            /** Format: date-time */
+            cancelled_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            replayed?: boolean;
+        };
+        ReminderListResponseV2: {
+            items: components["schemas"]["ReminderResourceV2"][];
+        };
+        ProjectCreateRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            mission_id: string;
+            /** Format: uuid */
+            accepted_route_revision_id: string;
+            /** @enum {unknown} */
+            project_kind: "code" | "writing" | "design";
+            title: string;
+            brief: string;
+        };
+        ProjectStatusRequestV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            status: "active" | "blocked" | "archived";
+            reason: string;
+            expected_project_version: number;
+        };
+        MilestoneCreateRequestV2: {
+            request_id: string;
+            title: string;
+            required: boolean;
+            sequence: number;
+            acceptance_spec: Record<string, never>;
+            expected_project_version: number;
+        };
+        /** @description result is required only for submit and forbidden for every other action. It is encrypted under the stable Milestone identity. */
+        MilestoneTransitionRequestV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            action: "start" | "submit" | "verify" | "request_rework" | "complete";
+            result?: string | null;
+            expected_project_version: number;
+            expected_milestone_version: number;
+        };
+        ProjectWorkspaceBindRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            branch_name: string;
+            base_revision: string;
+            expected_project_version: number;
+        };
+        ProjectWorkspaceAdvanceRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            binding_id: string;
+            expected_head_revision: string;
+            head_revision: string;
+            expected_project_version: number;
+            expected_binding_version: number;
+        };
+        /** @description Closed admission request. No caller-supplied result, passed flag, verdict, evidence_id or test_run_id is accepted. */
+        ProjectTestGenerationRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            milestone_id: string;
+            /** @enum {unknown} */
+            validation_kind: "deterministic_test" | "rubric_review";
+            validation_spec: Record<string, never>;
+            workspace_revision: string;
+            expected_project_version: number;
+            expected_milestone_version: number;
+            expected_workspace_binding_version: number;
+        };
+        ProjectCompleteRequestV2: {
+            request_id: string;
+            reflection: string;
+            workspace_revision: string;
+            expected_project_version: number;
+        };
+        ProjectResourceV2: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            mission_id: string;
+            /** Format: uuid */
+            accepted_route_revision_id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "draft" | "active" | "blocked" | "completed" | "archived";
+            /** @enum {unknown} */
+            project_kind: "code" | "writing" | "design";
+            title: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+        };
+        ProjectMutationResponseV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "active" | "blocked" | "completed" | "archived";
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            event_id: string;
+            completion_manifest_hash?: string;
+            replayed: boolean;
+        };
+        MilestoneMutationResponseV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "active" | "blocked" | "archived";
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
+            /** Format: uuid */
+            milestone_id: string;
+            milestone_version: number;
+            /** @enum {unknown} */
+            milestone_status: "planned" | "in_progress" | "submitted" | "verified" | "rework" | "completed";
+        };
+        ProjectWorkspaceResourceV2: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            branch_name: string;
+            base_revision: string;
+            head_revision: string;
+            binding_manifest_hash: string;
+            version: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProjectWorkspaceMutationResponseV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "active" | "blocked" | "archived";
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            event_id: string;
+            replayed: boolean;
+            workspace: components["schemas"]["ProjectWorkspaceResourceV2"];
+        };
+        ProjectTestGenerationResponseV2: {
+            /** Format: uuid */
+            generation_id: string;
+            /** Format: uuid */
+            run_id: string;
+            /** @constant */
+            status: "queued";
+            /** Format: date-time */
+            accepted_at: string;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: uuid */
+            milestone_id: string;
+            project_version: number;
+            workspace_revision: string;
+            replayed: boolean;
+        };
+        ProjectListResponseV2: {
+            items: components["schemas"]["ProjectResourceV2"][];
+            next_cursor: string | null;
+        };
+        /** @description Closed selection request. content_ref, content_hash, object_version, scan_status, scan_result_hash, Evidence versions and completion verdict are forbidden. */
+        PortfolioExportRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            project_id: string;
+            expected_project_version: number;
+            expected_workspace_binding_version: number;
+            workspace_revision: string;
+            artifact_revision_ids: string[];
+            /** @enum {unknown} */
+            format: "html" | "pdf" | "zip";
+        };
+        PortfolioExportResourceV2: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: uuid */
+            run_id: string;
+            /** @enum {unknown} */
+            status: "requested" | "building" | "ready" | "failed" | "expired";
+            version: number;
+            /** @enum {unknown} */
+            format: "html" | "pdf" | "zip";
+            revision_manifest_hash: string;
+            content_hash: string | null;
+            media_type: string | null;
+            byte_size: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            started_at: string | null;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+            failure_code: string | null;
+            replayed: boolean;
+        };
+        ShareGrantCreateRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            grantee_user_id: string;
+            /** @enum {unknown} */
+            resource_kind: "evidence" | "workspace" | "artifact" | "project";
+            /** Format: uuid */
+            resource_id: string;
+            resource_revision: string;
+            scope: ("read" | "review")[];
+            /** Format: date-time */
+            expires_at: string | null;
+        };
+        ShareGrantRevokeRequestV2: {
+            request_id: string;
+            reason: string;
+            expected_grant_version: number;
+        };
+        ShareGrantResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "active" | "revoked";
+            /** Format: date-time */
+            updated_at: string;
+            replayed?: boolean;
+        };
+        AggregateQueryRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            snapshot_id: string;
+            /** @enum {unknown} */
+            metric_key: "active_members" | "task_completion_rate" | "weekly_loop_completion_rate" | "project_completion_rate" | "aggregate_credit_usage";
+            dimensions: {
+                [key: string]: string;
+            };
+            /** @enum {unknown} */
+            time_bucket: "week" | "month" | "quarter";
+        };
+        AggregateQueryResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "returned" | "suppressed";
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            snapshot_id: string;
+            /** @enum {unknown} */
+            metric_key: "active_members" | "task_completion_rate" | "weekly_loop_completion_rate" | "project_completion_rate" | "aggregate_credit_usage";
+            value: number | null;
+            /** @enum {string|null} */
+            suppression_reason: null | "minimum_cell_size" | "minimum_complement_size";
+            budget_remaining: number;
+            replayed?: boolean;
+        };
+        ProgramCreateRequestV2: {
+            request_id: string;
+            name: string;
+            settings: {
+                [key: string]: unknown;
+            };
+        };
+        ProgramUpdateRequestV2: {
+            request_id: string;
+            name: string;
+            /** @enum {unknown} */
+            status: "active" | "paused" | "archived";
+            settings: {
+                [key: string]: unknown;
+            };
+            expected_program_version: number;
+        };
+        CohortCreateRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            program_id: string;
+            name: string;
+            /** Format: date-time */
+            starts_at?: string | null;
+            /** Format: date-time */
+            ends_at?: string | null;
+        };
+        CohortEnrollRequestV2: {
+            request_id: string;
+            user_ids: string[];
+            expected_cohort_version: number;
+        };
+        CohortUnenrollRequestV2: {
+            request_id: string;
+            reason: string;
+            expected_cohort_version: number;
+        };
+        RolePackPublishRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            program_id: string;
+            revision: number;
+            role_profile_ids: string[];
+            task_template_ids: string[];
+        };
+        EnterpriseResourceV2: {
+            /** Format: uuid */
+            id: string;
+            /** @constant */
+            version: 1;
+            /** @constant */
+            status: "published";
+            /** Format: date-time */
+            updated_at: string;
+            replayed?: boolean;
+        };
+        ContractProposalRequestV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            action: "create" | "renew" | "suspend" | "terminate";
+            target_contract_id: string;
+            target_version: number;
+            contract_number: string;
+            /** Format: date-time */
+            starts_at: string | null;
+            /** Format: date-time */
+            ends_at: string | null;
+            seat_limit: number;
+            region: string;
+            /** @enum {string} */
+            license_kind: "" | "enterprise_cloud" | "private_cloud" | "commercial_self_hosted";
+            reason: string;
+        } & (unknown & unknown & unknown & unknown);
+        ContractDecisionRequestV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            decision: "approve" | "reject";
+            proposal_hash: string;
+            target_version: number;
+            /** @constant */
+            expected_proposal_version: 1;
+        };
+        AccountingAdjustmentProposalRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            bucket_id: string;
+            target_version: number;
+            units: number;
+            reason: string;
+        };
+        AccountingAdjustmentDecisionRequestV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            decision: "approve" | "reject";
+            proposal_hash: string;
+            target_version: number;
+            /** @constant */
+            expected_proposal_version: 1;
+        };
+        AdminControlResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "proposed" | "rejected" | "executed";
+            proposal_hash: string;
+            /** Format: uuid */
+            target_id: string;
+            target_version: number;
+            approval_count: number;
+            /** Format: date-time */
+            updated_at: string;
+            replayed?: boolean;
+        };
+        UsageSnapshotV2: {
+            /** Format: uuid */
+            tenant_id: string;
+            granted_units: number;
+            available_units: number;
+            reserved_units: number;
+            settled_units: number;
+            active_seats: number;
+            seat_limit: number;
+            /** Format: date-time */
+            as_of: string;
+        };
+        AdminAuditRecordV2: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {unknown} */
+            kind: "contract_change" | "accounting_adjustment" | "admin_read";
+            action: string;
+            /** Format: uuid */
+            actor_user_id: string;
+            resource_kind: string;
+            /** Format: uuid */
+            resource_id: string;
+            reason_hash: string;
+            before_version: number | null;
+            after_version: number | null;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        AdminAuditPageV2: {
+            items: components["schemas"]["AdminAuditRecordV2"][];
+            next_before?: string;
+        };
+        EntitlementProposalRequestV2: {
+            request_id: string;
+            /** Format: uuid */
+            contract_id: string;
+            expected_contract_version: number;
+            /** @enum {unknown} */
+            entitlement_key: "programs" | "cohorts" | "role_packs" | "aggregate_analytics" | "audit_export" | "private_delivery" | "commercial_license" | "support_tier";
+            expected_entitlement_version: number;
+            limit_value?: number | null;
+            config: Record<string, never>;
+            reason: string;
+        };
+        EntitlementDecisionRequestV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            decision: "approve" | "reject";
+            proposal_hash: string;
+            target_contract_version: number;
+            target_entitlement_version: number;
+            /** @constant */
+            expected_proposal_version: 1;
+        };
+        SessionReauthenticationRequestV1: {
+            request_id: string;
+            password: string;
+        };
+        SessionReauthenticationResourceV1: {
+            /** Format: uuid */
+            session_id: string;
+            session_version: number;
+            /** Format: date-time */
+            reauthenticated_at: string;
+            /** Format: date-time */
+            valid_until: string;
+            replayed?: boolean;
+        };
+        SupportCaseCreateV2: {
+            request_id: string;
+            /** @enum {unknown} */
+            category: "product" | "security" | "privacy" | "contract" | "availability";
+            /** @enum {unknown} */
+            priority: "low" | "normal" | "high" | "urgent";
+            subject: string;
+            body: string;
+        };
+        SupportReplyV2: {
+            request_id: string;
+            body: string;
+            expected_case_version: number;
+        };
+        SupportMessageV2: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            author_user_id: string;
+            /** @enum {unknown} */
+            author_kind: "customer" | "tenant_admin" | "support";
+            body: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        SupportCaseV2: {
+            /** Format: uuid */
+            id: string;
+            reference: string;
+            /** Format: uuid */
+            requester_user_id: string;
+            /** @enum {unknown} */
+            category: "product" | "security" | "privacy" | "contract" | "availability";
+            /** @enum {unknown} */
+            priority: "low" | "normal" | "high" | "urgent";
+            /** @enum {unknown} */
+            status: "open" | "waiting_on_support" | "waiting_on_customer" | "resolved" | "closed";
+            subject: string;
+            /** @enum {unknown} */
+            support_tier: "community" | "standard" | "enterprise" | "premium";
+            version: number;
+            /** Format: date-time */
+            response_due_at?: string | null;
+            /** Format: date-time */
+            resolution_due_at?: string | null;
+            /** Format: date-time */
+            first_responded_at?: string | null;
+            /** Format: date-time */
+            resolved_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            messages?: components["schemas"]["SupportMessageV2"][];
+            replayed?: boolean;
+        };
+        SupportCasePageV2: {
+            items: components["schemas"]["SupportCaseV2"][];
+            next_cursor?: string;
+        };
+        PublicStatusComponentV1: {
+            id: string;
+            name: string;
+            /** @enum {unknown} */
+            state: "operational" | "degraded" | "major_outage" | "maintenance" | "unknown";
+            message?: string;
+        };
+        PublicStatusIncidentV1: {
+            id: string;
+            title: string;
+            /** @enum {unknown} */
+            state: "investigating" | "identified" | "monitoring" | "resolved";
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            message: string;
+        };
+        PublicStatusV1: {
+            /** @constant */
+            schema_version: 1;
+            /** @enum {unknown} */
+            overall: "operational" | "degraded" | "major_outage" | "maintenance" | "unknown";
+            /** Format: date-time */
+            generated_at: string;
+            /** Format: date-time */
+            valid_until: string;
+            components: components["schemas"]["PublicStatusComponentV1"][];
+            incidents: components["schemas"]["PublicStatusIncidentV1"][];
+        };
+        AdminAuditExportRequestV2: {
+            request_id: string;
+            /** Format: date-time */
+            period_start: string;
+            /** Format: date-time */
+            period_end: string;
+            kinds: ("contract_change" | "accounting_adjustment" | "admin_read")[];
+            /** @enum {unknown} */
+            format: "jsonl" | "csv";
+            reason: string;
+        };
+        AdminAuditExportV2: {
+            /** Format: uuid */
+            id: string;
+            /** @constant */
+            version: 1;
+            /** @constant */
+            status: "ready";
+            /** @enum {unknown} */
+            format: "jsonl" | "csv";
+            record_count: number;
+            content_hash: string;
+            byte_size: number;
+            /** Format: date-time */
+            period_start: string;
+            /** Format: date-time */
+            period_end: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            replayed?: boolean;
+        };
+        TaskPackPublishV2: {
+            request_id: string;
+            /** Format: uuid */
+            program_id: string;
+            revision: number;
+            name: string;
+            task_template_ids: string[];
+            assignment: {
+                [key: string]: unknown;
+            };
+        };
+        ProjectEvaluationResourceV2: {
+            /** Format: uuid */
+            generation_id: string;
+            /** Format: uuid */
+            run_id: string;
+            /** @enum {unknown} */
+            status: "generating" | "succeeded" | "failed" | "superseded";
+            failure_reason: string | null;
+            /** Format: uuid */
+            evidence_id: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProjectMilestoneResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            sequence: number;
+            required: boolean;
+            /** @enum {unknown} */
+            status: "planned" | "in_progress" | "submitted" | "verified" | "rework" | "completed";
+            title: string;
+            result: string | null;
+            /** Format: uuid */
+            verification_test_run_id: string | null;
+            evidence_ids: string[];
+            latest_evaluation: components["schemas"]["ProjectEvaluationResourceV2"] | null;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProjectArtifactResourceV2: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "draft" | "ready" | "archived";
+            /** @enum {unknown} */
+            artifact_kind: "code" | "writing" | "design";
+            title: string;
+            current_revision: number;
+            /** Format: uuid */
+            current_revision_id: string | null;
+            artifact_revision_ids: string[];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProjectExportResourceV2: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {unknown} */
+            status: "requested" | "building" | "ready" | "failed" | "expired";
+            version: number;
+            content_hash: string | null;
+            media_type: string | null;
+            byte_size: number | null;
+            failure_code: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+        };
+        ProjectDetailResourceV2: {
+            project: components["schemas"]["ProjectResourceV2"];
+            brief: string;
+            workspace: components["schemas"]["ProjectWorkspaceResourceV2"] | null;
+            milestones: components["schemas"]["ProjectMilestoneResourceV2"][];
+            artifacts: components["schemas"]["ProjectArtifactResourceV2"][];
+            latest_export: components["schemas"]["ProjectExportResourceV2"] | null;
+        };
+        /** @description Owner-scoped durable continuation state. Null when a submitted task has not yet admitted an evaluator generation; submitted plaintext is never returned. */
+        ReviewRecoverySnapshotV2: {
+            /** Format: uuid */
+            submission_id: string;
+            submission_revision: number;
+            /** Format: uuid */
+            generation_id: string | null;
+            /** Format: uuid */
+            run_id: string | null;
+            /** Format: uuid */
+            rubric_version_id: string | null;
+            /** @enum {string|null} */
+            generation_status: "generating" | "succeeded" | "failed" | "superseded" | null;
+            /** Format: uuid */
+            review_id: string | null;
+            /** Format: uuid */
+            evidence_id: string | null;
+            failure_reason: string | null;
+            /** Format: date-time */
+            generation_created_at: string | null;
+            /** Format: date-time */
+            generation_updated_at: string | null;
+            /** Format: date-time */
+            generation_completed_at: string | null;
         };
     };
     responses: never;
@@ -4448,6 +6237,178 @@ export interface operations {
             };
         };
     };
+    "account.export.get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountExportGetResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized tenant scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, focus, stale result, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Encrypted account export dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "account.export.download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    Digest?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                    "application/zip": string;
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized tenant scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, focus, stale result, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Encrypted account export dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "account.erasure.create": {
         parameters: {
             query?: never;
@@ -5227,10 +7188,162 @@ export interface operations {
             };
         };
     };
-    "missions.list": {
+    "missions.list.v2": {
         parameters: {
-            query?: {
-                cursor?: components["parameters"]["Cursor"];
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.missions.v2+json": components["schemas"]["MissionListResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "missions.create.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.mission-create.v2+json": components["schemas"]["MissionCreateRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.mission.v2+json": components["schemas"]["MissionMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "routes.list.v2": {
+        parameters: {
+            query: {
+                mission_id: string;
             };
             header?: never;
             path?: never;
@@ -5244,7 +7357,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MissionsListResponse"];
+                    "application/vnd.lites.route-revisions.v2+json": components["schemas"]["RouteRevisionListResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -5256,7 +7369,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5274,163 +7387,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "missions.create": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MissionsCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MissionsCreateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "missions.get": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MissionsGetResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
+            /** @description Resource not found in the authorized scope */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5439,7 +7396,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5459,416 +7416,16 @@ export interface operations {
             };
         };
     };
-    "missions.update": {
+    "routes.generate.v2": {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MissionsUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MissionsUpdateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "missions.focus": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MissionsFocusRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MissionsFocusResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "routes.list": {
-        parameters: {
-            query?: {
-                cursor?: components["parameters"]["Cursor"];
-            };
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RoutesListResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "routes.generate": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path?: never;
-            cookie?: never;
-        };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RoutesGenerateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RoutesGenerateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Required model, tool or runtime dependency unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "routes.accept": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RoutesAcceptRequest"];
+                "application/vnd.lites.route-generate.v2+json": components["schemas"]["RouteGenerateRequestV2"];
             };
         };
         responses: {
@@ -5878,7 +7435,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RoutesAcceptResponse"];
+                    "application/vnd.lites.route-generation.v2+json": components["schemas"]["RouteGenerateResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -5890,7 +7447,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5908,7 +7465,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Resource not found in the authorized tenant scope */
+            /** @description Resource not found in the authorized scope */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5917,35 +7474,8 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Idempotency, state, or version conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6230,10 +7760,10 @@ export interface operations {
             };
         };
     };
-    "evidence.list": {
+    "evidence.list.v2": {
         parameters: {
             query?: {
-                cursor?: components["parameters"]["Cursor"];
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -6247,7 +7777,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EvidenceListResponse"];
+                    "application/vnd.lites.evidence-list.v2+json": components["schemas"]["EvidenceListResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -6259,7 +7789,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6277,7 +7807,16 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6297,18 +7836,16 @@ export interface operations {
             };
         };
     };
-    "evidence.record": {
+    "evidence.record.v2": {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EvidenceRecordRequest"];
+                "application/vnd.lites.evidence-record.v2+json": components["schemas"]["EvidenceRecordRequestV2"];
             };
         };
         responses: {
@@ -6318,7 +7855,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EvidenceRecordResponse"];
+                    "application/vnd.lites.evidence.v2+json": components["schemas"]["EvidenceMutationResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -6330,7 +7867,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6348,26 +7885,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6386,10 +7914,10 @@ export interface operations {
             };
         };
     };
-    "tasks.list": {
+    "tasks.list.v2": {
         parameters: {
             query?: {
-                cursor?: components["parameters"]["Cursor"];
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -6403,7 +7931,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TasksListResponse"];
+                    "application/vnd.lites.daily-tasks.v2+json": components["schemas"]["DailyTaskListResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -6415,7 +7943,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6433,7 +7961,16 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6561,215 +8098,18 @@ export interface operations {
             };
         };
     };
-    "tasks.update": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TasksUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TasksUpdateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "submissions.create": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SubmissionsCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmissionsCreateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "reviews.get": {
+    "submissions.create.v2": {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                id: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/vnd.lites.submission-create.v2+json": components["schemas"]["SubmissionCreateRequestV2"];
+            };
+        };
         responses: {
             /** @description Successful operation */
             200: {
@@ -6777,7 +8117,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReviewsGetResponse"];
+                    "application/vnd.lites.submission.v2+json": components["schemas"]["SubmissionResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -6789,7 +8129,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6807,7 +8147,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Resource not found in the authorized tenant scope */
+            /** @description Resource not found in the authorized scope */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6816,7 +8156,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6836,29 +8176,26 @@ export interface operations {
             };
         };
     };
-    "reviews.generate": {
+    "reviews.generate.v2": {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReviewsGenerateRequest"];
+                "application/vnd.lites.review-generate.v2+json": components["schemas"]["ReviewGenerateRequestV2"];
             };
         };
         responses: {
             /** @description Successful operation */
-            202: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReviewsGenerateResponse"];
+                    "application/vnd.lites.review-generation.v2+json": components["schemas"]["ReviewGenerationResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -6870,7 +8207,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6888,35 +8225,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6933,21 +8252,12 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Required model, tool or runtime dependency unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
         };
     };
-    "projects.list": {
+    "projects.list.v2": {
         parameters: {
             query?: {
-                cursor?: components["parameters"]["Cursor"];
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -6961,7 +8271,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectsListResponse"];
+                    "application/vnd.lites.projects.v2+json": components["schemas"]["ProjectListResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -6973,7 +8283,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6991,7 +8301,16 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7011,18 +8330,16 @@ export interface operations {
             };
         };
     };
-    "projects.create": {
+    "projects.create.v2": {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ProjectsCreateRequest"];
+                "application/vnd.lites.project-create.v2+json": components["schemas"]["ProjectCreateRequestV2"];
             };
         };
         responses: {
@@ -7032,7 +8349,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectsCreateResponse"];
+                    "application/vnd.lites.project.v2+json": components["schemas"]["ProjectMutationResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -7044,7 +8361,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7062,99 +8379,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "projects.update": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProjectsUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectsUpdateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
+            /** @description Resource not found in the authorized scope */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7163,671 +8388,8 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Idempotency, state, or version conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "milestones.create": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MilestonesCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MilestonesCreateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "milestones.update": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-                milestone_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MilestonesUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MilestonesUpdateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "workspace.get": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceGetResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "workspace.bind": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WorkspaceBindRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceBindResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "projects.test": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProjectsTestRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectsTestResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Required model, tool or runtime dependency unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "projects.complete": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProjectsCompleteRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectsCompleteResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8045,19 +8607,16 @@ export interface operations {
             };
         };
     };
-    "portfolio.export": {
+    "portfolio-exports.request.v2": {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PortfolioExportRequest"];
+                "application/vnd.lites.portfolio-export.v2+json": components["schemas"]["PortfolioExportRequestV2"];
             };
         };
         responses: {
@@ -8067,7 +8626,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PortfolioExportResponse"];
+                    "application/vnd.lites.portfolio-export.v2+json": components["schemas"]["PortfolioExportResourceV2"];
                 };
             };
             /** @description Invalid request */
@@ -8079,7 +8638,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8097,35 +8656,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8135,15 +8676,6 @@ export interface operations {
             };
             /** @description Rate or quota limit */
             429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Required model, tool or runtime dependency unavailable */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8229,18 +8761,16 @@ export interface operations {
             };
         };
     };
-    "share_grants.create": {
+    "share-grants.create.v2": {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SharegrantsCreateRequest"];
+                "application/vnd.lites.share-grant-create.v2+json": components["schemas"]["ShareGrantCreateRequestV2"];
             };
         };
         responses: {
@@ -8250,7 +8780,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SharegrantsCreateResponse"];
+                    "application/vnd.lites.share-grant.v2+json": components["schemas"]["ShareGrantResourceV2"];
                 };
             };
             /** @description Invalid request */
@@ -8262,7 +8792,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8280,99 +8810,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "share_grants.revoke": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SharegrantsRevokeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SharegrantsRevokeResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
+            /** @description Resource not found in the authorized scope */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8381,35 +8819,8 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Idempotency, state, or version conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8428,7 +8839,7 @@ export interface operations {
             };
         };
     };
-    "preferences.get": {
+    "preferences.get.v2": {
         parameters: {
             query?: never;
             header?: never;
@@ -8443,7 +8854,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PreferencesGetResponse"];
+                    "application/vnd.lites.preferences.v2+json": components["schemas"]["PreferencesResourceV2"];
                 };
             };
             /** @description Invalid request */
@@ -8455,7 +8866,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8473,269 +8884,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "preferences.update": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PreferencesUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PreferencesUpdateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "reminders.create": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RemindersCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RemindersCreateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "reminders.cancel": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RemindersCancelRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RemindersCancelResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
+            /** @description Resource not found in the authorized scope */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8744,35 +8893,8 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Idempotency, state, or version conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8791,21 +8913,16 @@ export interface operations {
             };
         };
     };
-    "reminders.update": {
+    "preferences.update.v2": {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RemindersUpdateRequest"];
+                "application/vnd.lites.preferences-update.v2+json": components["schemas"]["PreferencesUpdateRequestV2"];
             };
         };
         responses: {
@@ -8815,7 +8932,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RemindersUpdateResponse"];
+                    "application/vnd.lites.preferences.v2+json": components["schemas"]["PreferencesResourceV2"];
                 };
             };
             /** @description Invalid request */
@@ -8827,7 +8944,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8845,7 +8962,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Resource not found in the authorized tenant scope */
+            /** @description Resource not found in the authorized scope */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8854,7 +8971,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8863,8 +8980,8 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Payload too large */
-            413: {
+            /** @description Rate or quota limit */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8872,8 +8989,28 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unsupported media type */
-            415: {
+        };
+    };
+    "reminders.list.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.reminder-list.v2+json": components["schemas"]["ReminderListResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8881,8 +9018,113 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description If-Match precondition required */
-            428: {
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "reminders.create.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.reminder-create.v2+json": components["schemas"]["ReminderCreateRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.reminder.v2+json": components["schemas"]["ReminderResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9906,7 +10148,10 @@ export interface operations {
     "events.list": {
         parameters: {
             query?: {
-                after_seq?: components["parameters"]["AfterSeq"];
+                /** @description Last tenant-user EventStore sequence already processed. Defaults to zero. */
+                after_seq?: number;
+                /** @description High watermark returned by the first page. Required on continuation pages to preserve the original snapshot boundary. */
+                through_seq?: number;
             };
             header?: never;
             path?: never;
@@ -9920,7 +10165,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EventsListResponse"];
+                    "application/json": components["schemas"]["EventsListResponseV2"];
                 };
             };
             /** @description Invalid request */
@@ -9932,7 +10177,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -9950,7 +10195,16 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9972,8 +10226,14 @@ export interface operations {
     };
     "realtime.connect": {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description Initial tenant-user EventStore cursor. */
+                after_seq?: number;
+            };
+            header?: {
+                /** @description Standard SSE reconnect cursor. If after_seq is also present, both values must match. */
+                "Last-Event-ID"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9997,7 +10257,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -10015,7 +10275,16 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10876,906 +11145,404 @@ export interface operations {
             };
         };
     };
-    "admin.programs.create": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdminProgramsCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminProgramsCreateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "admin.programs.update": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdminProgramsUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminProgramsUpdateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "admin.cohorts.create": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdminCohortsCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminCohortsCreateResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "admin.cohorts.enroll": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdminCohortsEnrollRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminCohortsEnrollResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "admin.cohorts.unenroll": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-                user_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdminCohortsUnenrollRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminCohortsUnenrollResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "admin.role_packs.publish": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdminRolepacksPublishRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminRolepacksPublishResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "admin.contracts.propose": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdminContractsProposeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminContractsProposeResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "admin.contracts.decide": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdminContractsDecideRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminContractsDecideResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Resource not found in the authorized tenant scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "admin.entitlements.propose": {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdminEntitlementsProposeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful operation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminEntitlementsProposeResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Authentication or reauthentication required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description If-Match precondition required */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Rate or quota limit */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "admin.usage.get": {
+    "admin.programs.create.v2": {
         parameters: {
             query?: never;
             header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.program-create.v2+json": components["schemas"]["ProgramCreateRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.enterprise-resource.v2+json": components["schemas"]["EnterpriseResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.cohorts.create.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.cohort-create.v2+json": components["schemas"]["CohortCreateRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.enterprise-resource.v2+json": components["schemas"]["EnterpriseResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.role-packs.publish.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.role-pack-publish.v2+json": components["schemas"]["RolePackPublishRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.enterprise-resource.v2+json": components["schemas"]["EnterpriseResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.contracts.propose.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.contract-proposal.v2+json": components["schemas"]["ContractProposalRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.admin-control-resource.v2+json": components["schemas"]["AdminControlResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.entitlements.propose.v2": {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.entitlement-proposal.v2+json": components["schemas"]["EntitlementProposalRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.admin-control-resource.v2+json": components["schemas"]["AdminControlResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.usage.read.v2": {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Audit-Reason": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -11787,7 +11554,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AdminUsageGetResponse"];
+                    "application/vnd.lites.usage-snapshot.v2+json": components["schemas"]["UsageSnapshotV2"];
                 };
             };
             /** @description Invalid request */
@@ -11799,7 +11566,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -11817,7 +11584,16 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12235,18 +12011,16 @@ export interface operations {
             };
         };
     };
-    "admin.aggregates.query": {
+    "admin.aggregate-queries.query.v2": {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AdminAggregatesQueryRequest"];
+                "application/vnd.lites.aggregate-query-request.v2+json": components["schemas"]["AggregateQueryRequestV2"];
             };
         };
         responses: {
@@ -12256,7 +12030,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AdminAggregatesQueryResponse"];
+                    "application/vnd.lites.aggregate-query.v2+json": components["schemas"]["AggregateQueryResourceV2"];
                 };
             };
             /** @description Invalid request */
@@ -12268,7 +12042,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -12286,26 +12060,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12324,12 +12089,12 @@ export interface operations {
             };
         };
     };
-    "admin.audit.list": {
+    "admin.audit.read.v2": {
         parameters: {
-            query?: {
-                cursor?: components["parameters"]["Cursor"];
+            query?: never;
+            header: {
+                "X-Audit-Reason": string;
             };
-            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -12341,7 +12106,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AdminAuditListResponse"];
+                    "application/vnd.lites.admin-audit-page.v2+json": components["schemas"]["AdminAuditPageV2"];
                 };
             };
             /** @description Invalid request */
@@ -12353,7 +12118,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -12371,7 +12136,16 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12391,18 +12165,16 @@ export interface operations {
             };
         };
     };
-    "admin.audit.export": {
+    "admin.audit-exports.request.v2": {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AdminAuditExportRequest"];
+                "application/vnd.lites.admin-audit-export-request.v2+json": components["schemas"]["AdminAuditExportRequestV2"];
             };
         };
         responses: {
@@ -12412,7 +12184,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AdminAuditExportResponse"];
+                    "application/vnd.lites.admin-audit-export.v2+json": components["schemas"]["AdminAuditExportV2"];
                 };
             };
             /** @description Invalid request */
@@ -12424,7 +12196,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Authentication or reauthentication required */
+            /** @description Authentication or recent reauthentication required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -12442,26 +12214,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Idempotency, state, focus, stale result, or version conflict */
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unsupported media type */
-            415: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12781,6 +12544,3105 @@ export interface operations {
             };
             /** @description If-Match precondition required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "behavior.snapshots.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviorSnapshotCreateRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BehaviorMutationResultV1"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "behavior.evaluations.record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviorEvaluationCreateRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BehaviorMutationResultV1"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "behavior.promotions.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviorPromotionCreateRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BehaviorMutationResultV1"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "behavior.channels.current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile: components["schemas"]["BehaviorProfile"];
+                environment: components["schemas"]["BehaviorEnvironment"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BehaviorChannelBindingV1"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "behavior.rollbacks.automatic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviorRollbackCreateRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BehaviorMutationResultV1"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "missions.get.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.mission.v2+json": components["schemas"]["MissionResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "missions.update.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.mission-status.v2+json": components["schemas"]["MissionStatusChangeRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MissionMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "missions.focus.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.mission-focus.v2+json": components["schemas"]["MissionFocusChangeRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MissionMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "routes.accept.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                route_revision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.route-accept.v2+json": components["schemas"]["RouteAcceptRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.route-acceptance.v2+json": components["schemas"]["RouteAcceptResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "tasks.update.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                daily_task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.daily-task-update.v2+json": components["schemas"]["DailyTaskUpdateRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.daily-task-mutation.v2+json": components["schemas"]["DailyTaskMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "reviews.get.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.review.v2+json": components["schemas"]["ReviewResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "reminders.cancel": {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemindersCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemindersCancelResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized tenant scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, focus, stale result, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Payload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match precondition required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "reminders.update.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.reminder-update.v2+json": components["schemas"]["ReminderUpdateRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.reminder.v2+json": components["schemas"]["ReminderResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "projects.get.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.project-detail.v2+json": components["schemas"]["ProjectDetailResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "projects.update.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.project-status.v2+json": components["schemas"]["ProjectStatusRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.project.v2+json": components["schemas"]["ProjectMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "milestones.create.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.milestone-create.v2+json": components["schemas"]["MilestoneCreateRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.milestone.v2+json": components["schemas"]["MilestoneMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "milestones.transition.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                milestone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.milestone-transition.v2+json": components["schemas"]["MilestoneTransitionRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.milestone.v2+json": components["schemas"]["MilestoneMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "projects.workspace.get.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.project-workspace.v2+json": components["schemas"]["ProjectWorkspaceResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "projects.workspace.bind.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.project-workspace-bind.v2+json": components["schemas"]["ProjectWorkspaceBindRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.project-workspace.v2+json": components["schemas"]["ProjectWorkspaceMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "projects.workspace.advance.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.project-workspace-advance.v2+json": components["schemas"]["ProjectWorkspaceAdvanceRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.project-workspace.v2+json": components["schemas"]["ProjectWorkspaceMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "projects.test.generate.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.project-test-generation.v2+json": components["schemas"]["ProjectTestGenerationRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.project-test-generation.v2+json": components["schemas"]["ProjectTestGenerationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "projects.complete.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.project-complete.v2+json": components["schemas"]["ProjectCompleteRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.project.v2+json": components["schemas"]["ProjectMutationResponseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "portfolio-exports.get.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.portfolio-export.v2+json": components["schemas"]["PortfolioExportResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "share-grants.revoke.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.share-grant-revoke.v2+json": components["schemas"]["ShareGrantRevokeRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.share-grant.v2+json": components["schemas"]["ShareGrantResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.programs.update.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                program_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.program-update.v2+json": components["schemas"]["ProgramUpdateRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.enterprise-resource.v2+json": components["schemas"]["EnterpriseResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.cohorts.enroll.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cohort_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.cohort-enroll.v2+json": components["schemas"]["CohortEnrollRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.enterprise-resource.v2+json": components["schemas"]["EnterpriseResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.cohorts.unenroll.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cohort_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.cohort-unenroll.v2+json": components["schemas"]["CohortUnenrollRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.enterprise-resource.v2+json": components["schemas"]["EnterpriseResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.contracts.decide.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.contract-decision.v2+json": components["schemas"]["ContractDecisionRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.admin-control-resource.v2+json": components["schemas"]["AdminControlResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.usage.adjustments.propose.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.accounting-adjustment-proposal.v2+json": components["schemas"]["AccountingAdjustmentProposalRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.admin-control-resource.v2+json": components["schemas"]["AdminControlResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.usage.adjustments.decide.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.accounting-adjustment-decision.v2+json": components["schemas"]["AccountingAdjustmentDecisionRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.admin-control-resource.v2+json": components["schemas"]["AdminControlResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.entitlements.decide.v2": {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.entitlement-decision.v2+json": components["schemas"]["EntitlementDecisionRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.admin-control-resource.v2+json": components["schemas"]["AdminControlResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "auth.reauthentication.create.v1": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionReauthenticationRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionReauthenticationResourceV1"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "support.cases.list.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.support-case-page.v2+json": components["schemas"]["SupportCasePageV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "support.cases.create.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.support-case-create.v2+json": components["schemas"]["SupportCaseCreateV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.support-case.v2+json": components["schemas"]["SupportCaseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "support.cases.get.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.support-case.v2+json": components["schemas"]["SupportCaseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "support.cases.reply.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.support-reply.v2+json": components["schemas"]["SupportReplyV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.support-case.v2+json": components["schemas"]["SupportCaseV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "public.status.get.v1": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.public-status.v1+json": components["schemas"]["PublicStatusV1"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.audit-exports.download.v2": {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Audit-Reason": string;
+            };
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-ndjson or text/csv": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate or quota limit */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "admin.task-packs.publish.v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.lites.task-pack-publish.v2+json": components["schemas"]["TaskPackPublishV2"];
+            };
+        };
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.lites.enterprise-resource.v2+json": components["schemas"]["EnterpriseResourceV2"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authentication or recent reauthentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Resource not found in the authorized scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Idempotency, state, or version conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

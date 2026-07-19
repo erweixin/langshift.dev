@@ -37,11 +37,14 @@ func (handler ProjectHandler) ServeHTTP(writer http.ResponseWriter, request *htt
 	}
 	switch child {
 	case "":
-		if request.Method != http.MethodPatch {
-			handler.methodNotAllowed(writer, request, http.MethodPatch)
-			return
+		switch request.Method {
+		case http.MethodGet:
+			handler.get(writer, request, projectID)
+		case http.MethodPatch:
+			handler.changeStatus(writer, request, projectID)
+		default:
+			handler.methodNotAllowed(writer, request, "GET, PATCH")
 		}
-		handler.changeStatus(writer, request, projectID)
 	case "milestones":
 		if childID == "" && request.Method == http.MethodPost {
 			handler.createMilestone(writer, request, projectID)
@@ -78,6 +81,19 @@ func (handler ProjectHandler) ServeHTTP(writer http.ResponseWriter, request *htt
 	default:
 		handler.problem(writer, request, http.StatusNotFound, "resource_not_found", false)
 	}
+}
+
+func (handler ProjectHandler) get(writer http.ResponseWriter, request *http.Request, projectID string) {
+	claims, ok := handler.claims(writer, request, false)
+	if !ok {
+		return
+	}
+	result, err := handler.Service.Get(request.Context(), ProjectGetQuery{TenantID: claims.TenantID, UserID: claims.SubjectID, ProjectID: projectID})
+	if err != nil {
+		handler.finish(writer, request, err)
+		return
+	}
+	handler.write(writer, http.StatusOK, "application/vnd.lites.project-detail.v2+json", result.Project.Version, result)
 }
 
 func (handler ProjectHandler) generateTest(writer http.ResponseWriter, request *http.Request, projectID string) {

@@ -22,6 +22,7 @@ type config struct {
 	streamName, consumerName, workerID, healthAddress                                 string
 	promptPath, promptHash, routePath, routeHash, toolPath, toolHash                  string
 	providerPath, providerHash                                                        string
+	providerRootCAFile, privateEngineeringProviderHost                                string
 	executionIDKeyFile, executionLeasePepperFile, llmIDKeyFile, llmTokenPepperFile    string
 	billingIDKeyFile, agentIDKeyFile                                                  string
 	s3Region, s3Endpoint, payloadBucket, payloadPrefix, s3KMSKeyID                    string
@@ -52,6 +53,7 @@ func loadConfig() (config, error) {
 		epochURL: os.Getenv("STORE_EPOCH_URL"), epochTokenFile: os.Getenv("STORE_EPOCH_TOKEN_FILE"), epochCAFile: os.Getenv("STORE_EPOCH_ROOT_CA_FILE"), epochCertFile: os.Getenv("STORE_EPOCH_CLIENT_CERT_FILE"), epochKeyFile: os.Getenv("STORE_EPOCH_CLIENT_KEY_FILE"), epochTLSName: os.Getenv("STORE_EPOCH_TLS_SERVER_NAME"),
 		natsURLs: split(os.Getenv("NATS_URLS")), natsName: env("NATS_CLIENT_NAME", "lites-agent-worker"), natsCredentialsFile: os.Getenv("NATS_CREDENTIALS_FILE"), natsCAFile: os.Getenv("NATS_ROOT_CA_FILE"), natsCertFile: os.Getenv("NATS_CLIENT_CERT_FILE"), natsKeyFile: os.Getenv("NATS_CLIENT_KEY_FILE"), streamName: env("NATS_COMMAND_STREAM", "LITES_COMMANDS"), consumerName: env("NATS_CONSUMER_NAME", "agent-worker-v1"), workerID: env("AGENT_WORKER_ID", os.Getenv("HOSTNAME")), healthAddress: env("HEALTH_ADDRESS", "127.0.0.1:8089"),
 		promptPath: os.Getenv("PROMPT_ARTIFACT_FILE"), promptHash: os.Getenv("PROMPT_ARTIFACT_HASH"), routePath: os.Getenv("MODEL_ROUTE_ARTIFACT_FILE"), routeHash: os.Getenv("MODEL_ROUTE_ARTIFACT_HASH"), toolPath: os.Getenv("TOOL_REGISTRY_ARTIFACT_FILE"), toolHash: os.Getenv("TOOL_REGISTRY_ARTIFACT_HASH"), providerPath: os.Getenv("PROVIDER_REGISTRY_FILE"), providerHash: os.Getenv("PROVIDER_REGISTRY_FILE_HASH"),
+		providerRootCAFile: os.Getenv("PROVIDER_ROOT_CA_FILE"), privateEngineeringProviderHost: os.Getenv("PRIVATE_ENGINEERING_PROVIDER_HOST"),
 		executionIDKeyFile: os.Getenv("EXECUTION_ID_KEY_FILE"), executionLeasePepperFile: os.Getenv("EXECUTION_LEASE_PEPPER_FILE"), llmIDKeyFile: os.Getenv("LLM_ID_KEY_FILE"), llmTokenPepperFile: os.Getenv("LLM_TOKEN_PEPPER_FILE"), billingIDKeyFile: os.Getenv("BILLING_ID_KEY_FILE"), agentIDKeyFile: os.Getenv("AGENT_ID_KEY_FILE"),
 		s3Region: os.Getenv("S3_REGION"), s3Endpoint: os.Getenv("S3_ENDPOINT"), payloadBucket: os.Getenv("S3_PAYLOAD_BUCKET"), payloadPrefix: env("S3_PAYLOAD_PREFIX", "restricted"), s3KMSKeyID: os.Getenv("S3_KMS_KEY_ID"), s3Encryption: types.ServerSideEncryption(env("S3_SERVER_SIDE_ENCRYPTION", string(types.ServerSideEncryptionAes256))),
 		vaultAddress: os.Getenv("VAULT_ADDR"), vaultNamespace: os.Getenv("VAULT_NAMESPACE"), vaultMount: env("VAULT_KV_MOUNT", "secret"), vaultTokenFile: os.Getenv("VAULT_TOKEN_FILE"), vaultCAFile: os.Getenv("VAULT_CACERT"), vaultCertFile: os.Getenv("VAULT_CLIENT_CERT_FILE"), vaultKeyFile: os.Getenv("VAULT_CLIENT_KEY_FILE"), vaultTLSName: os.Getenv("VAULT_TLS_SERVER_NAME"), vaultKeyPrefix: env("VAULT_PAYLOAD_KEY_PREFIX", "lites/payload-keys"), providerSecretPrefix: env("VAULT_PROVIDER_SECRET_PREFIX", "lites/providers"), byokSecretPrefix: env("VAULT_BYOK_SECRET_PREFIX", "lites/byok"),
@@ -111,6 +113,9 @@ func (value config) validate() error {
 	}
 	if secureEndpoint(value.epochURL, value.allowInsecure) != nil {
 		return errors.New("store epoch endpoint is invalid")
+	}
+	if value.privateEngineeringProviderHost != "" && (value.environment != "engineering-test" || value.privateEngineeringProviderHost != "model-adapter.lites.test" || value.providerRootCAFile == "") {
+		return errors.New("private provider access is restricted to the macOS engineering adapter")
 	}
 	if !value.allowInsecure && (value.databaseURLFile == "" || value.streamReplicas < 3 || value.natsCAFile == "" || value.natsCertFile == "" || value.epochCAFile == "" || value.epochTokenFile == "" && value.epochCertFile == "" || value.vaultCAFile == "" || value.vaultTokenFile == "" && value.vaultCertFile == "" || value.otlpEndpoint == "" || value.otlpCAFile == "" || value.otlpTokenFile == "" && value.otlpCertFile == "") {
 		return errors.New("production agent worker requires file credentials, mTLS, authenticated telemetry, and three JetStream replicas")

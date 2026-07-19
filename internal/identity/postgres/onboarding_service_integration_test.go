@@ -36,6 +36,8 @@ func TestOnboardingCreateIsDurableIdempotentAcrossPublicAnonymousAndAuthenticate
 	const personalTenant = "6b000000-0000-4000-8000-000000000002"
 	const formalUser = "6b000000-0000-4000-8000-000000000003"
 	const membershipID = "6b000000-0000-4000-8000-000000000004"
+	const sourceRoleID = "6b000000-0000-4000-8000-000000000006"
+	const targetRoleID = "6b000000-0000-4000-8000-000000000007"
 	for _, statement := range []struct {
 		query string
 		args  []any
@@ -44,6 +46,7 @@ func TestOnboardingCreateIsDurableIdempotentAcrossPublicAnonymousAndAuthenticate
 		{`INSERT INTO identity.users(id,normalized_email,email_verified_at,locale,status) VALUES($1,'onboarding-formal@example.invalid',$2,'en','active')`, []any{formalUser, now}},
 		{`INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Onboarding Personal','active','US',$2)`, []any{personalTenant, formalUser}},
 		{`INSERT INTO identity.memberships(id,tenant_id,user_id,role,status,joined_at) VALUES($1,$2,$3,'owner','active',$4)`, []any{membershipID, personalTenant, formalUser, now}},
+		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'frontend-engineer',1,'active','{}','en','{}'),($3,$2,'ai-product-lead',1,'active','{}','en','{}')`, []any{sourceRoleID, anonymousTenant, targetRoleID}},
 	} {
 		if _, err = admin.Exec(ctx, statement.query, statement.args...); err != nil {
 			t.Fatal(err)
@@ -88,6 +91,72 @@ func TestOnboardingCreateIsDurableIdempotentAcrossPublicAnonymousAndAuthenticate
 	body, err := payloadStore.Get(ctx, payload.Descriptor{TenantID: anonymousTenant, ObjectID: first.ID, Class: "onboarding-body", ContentType: "application/json"}, manifest)
 	if err != nil || !bytes.Contains(body, []byte(publicCommand.ExperienceSummary)) {
 		t.Fatalf("body=%s error=%v", body, err)
+	}
+	updatedRole := "Senior frontend engineer"
+	updatedStory := "Led a migration across three teams and handled production incidents"
+	updatedMinutes := 240
+	updateCommand := api.OnboardingUpdateCommand{RequestMetadata: api.RequestMetadata{RequestID: "40000000-0000-4000-8000-000000000099", ClientRequestID: "client-onboarding-update", IdempotencyKey: "onboarding-update-key-0001"}, PrincipalKind: trustedcontext.AnonymousUser, OnboardingSessionID: first.ID, UserID: principal.UserID, TenantID: principal.TenantID, AnonymousSubjectID: principal.AnonymousSubjectID, CurrentRole: &updatedRole, ExperienceSummary: &updatedStory, WeeklyMinutes: &updatedMinutes, ExpectedOnboardingVersion: 1}
+	updated, err := service.UpdateOnboarding(ctx, updateCommand)
+	if err != nil || updated.ID != first.ID || updated.Version != 2 || updated.Status != "collecting" {
+		t.Fatalf("updated=%#v error=%v", updated, err)
+	}
+	replayed, err := service.UpdateOnboarding(ctx, updateCommand)
+	if err != nil || replayed != updated {
+		t.Fatalf("replayed=%#v updated=%#v error=%v", replayed, updated, err)
+	}
+	stale := updateCommand
+	stale.IdempotencyKey = "onboarding-update-key-0002"
+	stale.ClientRequestID = "client-onboarding-update-stale"
+	if _, err = service.UpdateOnboarding(ctx, stale); !errors.Is(err, api.ErrVersionConflict) {
+		t.Fatalf("stale update error=%v", err)
+	}
+	var updatedVersion uint64
+	var updatedManifest string
+	var updatedEvents int
+	if err = admin.QueryRow(ctx, `SELECT s.version,s.experience_payload_ref,(SELECT count(*) FROM agent.events e WHERE e.tenant_id=s.tenant_id AND e.aggregate_kind='onboarding_session' AND e.aggregate_id=s.id AND e.aggregate_version=2) FROM identity.onboarding_sessions s WHERE s.id=$1`, first.ID).Scan(&updatedVersion, &updatedManifest, &updatedEvents); err != nil {
+		t.Fatal(err)
+	}
+	if updatedVersion != 2 || updatedEvents != 1 {
+		t.Fatalf("version=%d update events=%d", updatedVersion, updatedEvents)
+	}
+	if err = json.Unmarshal([]byte(updatedManifest), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	body, err = payloadStore.Get(ctx, payload.Descriptor{TenantID: anonymousTenant, ObjectID: first.ID, Class: "onboarding-body", ContentType: "application/json"}, manifest)
+	if err != nil || !bytes.Contains(body, []byte(updatedRole)) || !bytes.Contains(body, []byte(updatedStory)) || !bytes.Contains(body, []byte(`"weekly_minutes":240`)) {
+		t.Fatalf("updated body=%s error=%v", body, err)
+	}
+	routeService := OnboardingRouteService{Pool: pool, Payloads: payloadStore, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, StoreEpoch: storeEpoch, IdentityKey: bytes.Repeat([]byte{0x99}, 32), IdempotencyKeyPepper: bytes.Repeat([]byte{0x9a}, 32), RequestDigestPepper: bytes.Repeat([]byte{0x9b}, 32), IdempotencyTTL: 24 * time.Hour, Now: func() time.Time { return now }}
+	routeCommand := api.OnboardingRouteCommand{RequestMetadata: api.RequestMetadata{RequestID: "40000000-0000-4000-8000-000000000100", ClientRequestID: "client-onboarding-route", IdempotencyKey: "onboarding-route-key-0001"}, OnboardingSessionID: first.ID, TenantID: principal.TenantID, UserID: principal.UserID, AnonymousSubjectID: principal.AnonymousSubjectID, SourceRoleProfileID: sourceRoleID, TargetRoleProfileID: targetRoleID, ConfirmedClaimIDs: []string{}, ExpectedOnboardingVersion: 2}
+	routeResults := concurrentCalls(t, 32, func() (api.OnboardingRouteRequestResult, error) { return routeService.RequestRoute(ctx, routeCommand) })
+	firstRoute := routeResults[0]
+	if firstRoute.RunID == "" || firstRoute.Status != "accepted" || firstRoute.Version != 3 || !firstRoute.AcceptedAt.Equal(now) {
+		t.Fatalf("first route=%#v", firstRoute)
+	}
+	for _, result := range routeResults {
+		if result.RunID != firstRoute.RunID || result.Status != firstRoute.Status || result.Version != firstRoute.Version || !result.AcceptedAt.Equal(firstRoute.AcceptedAt) {
+			t.Fatalf("non-idempotent route=%#v first=%#v", result, firstRoute)
+		}
+	}
+	route, err := routeService.GetRoute(ctx, first.ID, principal.TenantID, principal.UserID, principal.AnonymousSubjectID)
+	if err != nil || route.ID != first.ID || route.Version != 3 || route.Status != "route_generating" || route.MissionID == nil || *route.MissionID != firstRoute.RunID || route.RouteRevisionID != nil || string(route.Route) != "null" {
+		t.Fatalf("route=%#v error=%v", route, err)
+	}
+	if _, err = routeService.GetRoute(ctx, first.ID, principal.TenantID, principal.UserID, "6b000000-0000-4000-8000-000000000099"); !errors.Is(err, api.ErrPermissionDenied) {
+		t.Fatalf("cross-subject route read error=%v", err)
+	}
+	staleRoute := routeCommand
+	staleRoute.IdempotencyKey = "onboarding-route-key-0002"
+	staleRoute.ClientRequestID = "client-onboarding-route-stale"
+	if _, err = routeService.RequestRoute(ctx, staleRoute); !errors.Is(err, api.ErrVersionConflict) {
+		t.Fatalf("stale route error=%v", err)
+	}
+	var routeMissions, routeEvents, routeOutbox, routeIdempotency int
+	if err = admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM product.missions WHERE tenant_id=$1 AND id=$2),(SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='onboarding_session' AND aggregate_id=$3 AND event_type='RoutePreviewRequested'),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$1 AND aggregate_kind='mission' AND aggregate_id=$2),(SELECT count(*) FROM agent.idempotency_responses WHERE tenant_id=$1 AND operation_id='onboarding.route-preview')`, anonymousTenant, firstRoute.RunID, first.ID).Scan(&routeMissions, &routeEvents, &routeOutbox, &routeIdempotency); err != nil {
+		t.Fatal(err)
+	}
+	if routeMissions != 1 || routeEvents != 1 || routeOutbox != 1 || routeIdempotency != 1 {
+		t.Fatalf("route missions=%d events=%d outbox=%d idempotency=%d", routeMissions, routeEvents, routeOutbox, routeIdempotency)
 	}
 	conflicting := publicCommand
 	conflicting.WeeklyMinutes++

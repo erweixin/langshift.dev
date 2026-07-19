@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const releaseRoot = resolve(root, "product-content", "releases", "1.0.0");
+const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+const worktreeDirty = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd: root, encoding: "utf8" }).trim().length > 0;
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const load = async (path) => JSON.parse(await readFile(path, "utf8"));
 const exactKeys = (value, keys) => JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
@@ -77,6 +80,7 @@ for (const profile of ["route_planner", "daily_planner", "coach", "evaluator", "
   const pairs = Object.groupBy(slice.samples, (sample) => sample.input.semanticKey);
   check(`PROFILE-${profile.toUpperCase()}-HASH`, sha256(JSON.stringify(slice.samples)) === slice.hash, `dataset hash ${slice.hash}`);
   check(`PROFILE-${profile.toUpperCase()}`, slice.samples.filter((sample) => sample.locale === "en").length === 100 && slice.samples.filter((sample) => sample.locale === "zh-CN").length === 100 && Object.values(pairs).length === 100 && Object.values(pairs).every((samples) => samples.length === 2), "100 paired scenarios per locale");
+  if (profile === "evaluator") check("PROFILE-EVALUATOR-NO-UPGRADE", slice.samples.every((sample) => sample.expected.mayUpgradeCapability === false), "the model evaluator can only propose evidence; a separate deterministic policy owns capability upgrades");
 }
 
 if (failures.length > 0) {
@@ -87,6 +91,8 @@ const report = {
   reportVersion: "1.0.0",
   reportKind: "stage4_content_release_technical_gate",
   status: "passed",
+  sourceCommit,
+  worktreeDirty,
   overallStage4Status: "in_progress",
   generatedAt: new Date().toISOString(),
   contentRelease: { version: manifest.releaseVersion, status: manifest.status, contentRootSha256: manifest.contentRootSha256, files: manifest.files },
@@ -102,7 +108,7 @@ const report = {
   ],
   notClaimedByThisReport: ["model_outputs_scored_by_two_reviewers", "browser_e2e", "accessibility_manual_review", "28_day_60_participant_pilot", "stage4_approval"],
 };
-const reportDirectory = resolve(root, "gate-reports", "stage-4");
-await mkdir(reportDirectory, { recursive: true });
-await writeFile(resolve(reportDirectory, "content-release-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+const reportPath = resolve(root, process.env.LITES_STAGE4_CONTENT_REPORT ?? "gate-reports/stage-4/content-release-report.json");
+await mkdir(dirname(reportPath), { recursive: true });
+await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 console.log("Stage 4 content release gate passed.");

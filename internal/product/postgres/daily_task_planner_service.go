@@ -155,7 +155,11 @@ func (service DailyTaskPlannerService) StartDelivery(ctx context.Context, inbox 
 		return "", "", "", false, ErrDailyTaskObsolete
 	}
 	var existingGenerationID string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM product.daily_task_generations WHERE tenant_id=$1 AND user_id=$2 AND scheduled_for=$3 AND status IN ('generating','succeeded') ORDER BY created_at,id LIMIT 1`, claim.Command.TenantID, document.UserID, document.ScheduledFor).Scan(&existingGenerationID)
+	// A day has one live task, but a corrected route is a new causal input and
+	// must receive a replacement generation. Coalesce only the exact
+	// Mission/Route/Focus request; the reconciler retires the prior task before
+	// materializing the replacement under the same daily slot.
+	err = tx.QueryRow(ctx, `SELECT id::text FROM product.daily_task_generations WHERE tenant_id=$1 AND user_id=$2 AND mission_id=$3 AND route_revision_id=$4 AND focus_version=$5 AND scheduled_for=$6 AND status IN ('generating','succeeded') ORDER BY created_at,id LIMIT 1`, claim.Command.TenantID, document.UserID, document.MissionID, document.RouteRevisionID, document.ExpectedFocusVersion, document.ScheduledFor).Scan(&existingGenerationID)
 	if err == nil {
 		if err = inbox.CompleteTx(ctx, tx, claim, now); err != nil {
 			return "", "", "", false, err
@@ -388,20 +392,20 @@ func (service DailyTaskPlannerService) completeSuperseded(ctx context.Context, i
 }
 
 func (service DailyTaskPlannerService) identifiers(commandID string) (dailyTaskIdentifiers, error) {
-	domains := []string{"daily-task-generation", "daily-planner-conversation", "daily-planner-message", "daily-planner-run", "run-start-command", "daily-planner-correlation"}
+	domains := []string{"daily-task-generation", "daily-planner-conversation", "daily-planner-message", "daily-planner-run", "daily-planner-correlation"}
 	values := make([]string, len(domains))
 	for index, domain := range domains {
-		seed := commandID
-		if domain == "run-start-command" {
-			seed = values[3]
-		}
-		value, err := ids.DeterministicUUID(service.IDKey, domain, seed)
+		value, err := ids.DeterministicUUID(service.IDKey, domain, commandID)
 		if err != nil {
 			return dailyTaskIdentifiers{}, err
 		}
 		values[index] = value
 	}
-	return dailyTaskIdentifiers{values[0], values[1], values[2], values[3], values[4], values[5]}, nil
+	startCommand, err := executionpostgres.RunStartCommandID(service.Runs.IDKey, values[3])
+	if err != nil {
+		return dailyTaskIdentifiers{}, err
+	}
+	return dailyTaskIdentifiers{values[0], values[1], values[2], values[3], startCommand, values[4]}, nil
 }
 
 func (service DailyTaskPlannerService) actor() json.RawMessage {

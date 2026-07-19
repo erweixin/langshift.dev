@@ -83,6 +83,8 @@ func TestGatewayConfigEnforcesProductionTLSAndOrigins(t *testing.T) {
 func TestGatewayConfigAllowsExplicitLoopbackDevelopment(t *testing.T) {
 	setGatewayProductionEnvironment(t)
 	t.Setenv("ALLOW_INSECURE_DEVELOPMENT", "true")
+	t.Setenv("LITES_ENVIRONMENT", "engineering-test")
+	t.Setenv("PUBLIC_ORIGINS", "http://127.0.0.1:3118")
 	t.Setenv("DATABASE_URL", "postgres://gateway:secret@127.0.0.1/lites")
 	t.Setenv("DATABASE_URL_FILE", "")
 	t.Setenv("SERVER_TLS_CERT_FILE", "")
@@ -142,6 +144,15 @@ func TestGatewayConfigAllowsExplicitLoopbackDevelopment(t *testing.T) {
 	contractClient, contractEndpoint, err := configuration.contractUpstreamClient()
 	if err != nil || contractClient.Timeout != 35*time.Second || contractEndpoint.String() != "http://127.0.0.1:8449" {
 		t.Fatalf("contract upstream client = %#v endpoint = %v error = %v", contractClient, contractEndpoint, err)
+	}
+}
+
+func TestGatewayConfigRejectsLoopbackHTTPOriginOutsideEngineeringTest(t *testing.T) {
+	setGatewayProductionEnvironment(t)
+	t.Setenv("ALLOW_INSECURE_DEVELOPMENT", "true")
+	t.Setenv("PUBLIC_ORIGINS", "http://127.0.0.1:3118")
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("production environment accepted an HTTP public origin")
 	}
 }
 

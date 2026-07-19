@@ -195,6 +195,10 @@ func TestHandlerClaimsHeartbeatsAndCompletesRootRun(t *testing.T) {
 	if err := handler.Handle(t.Context(), delivered); err != nil {
 		t.Fatal(err)
 	}
+	message, err := payloads.Get(t.Context(), payload.Descriptor{TenantID: claim.TenantID, ObjectID: "00000000-0000-4000-8000-000000000111", Class: "run-message", ContentType: "application/json"}, payload.Manifest{Ref: runs.message.Message.Ref, Hash: runs.message.Message.Hash})
+	if err != nil || string(message) != `{"schema_version":1,"role":"assistant","content":[{"type":"text","text":"done"}]}` {
+		t.Fatalf("canonical assistant message=%s err=%v", message, err)
+	}
 	runs.mu.Lock()
 	defer runs.mu.Unlock()
 	if runs.heartbeats < 1 || metrics.heartbeats != runs.heartbeats || metrics.active != 0 || metrics.completed != 1 || metrics.executions != 1 {

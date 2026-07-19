@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -40,6 +41,7 @@ type CreateReminderCommand struct {
 type UpdateReminderCommand struct {
 	CommandMetadata
 	ReminderID, Action, Timezone, LocalTime, Channel string
+	Reason, OperationID                              string
 	Weekdays                                         []int
 	ExpectedVersion                                  uint64
 }
@@ -104,6 +106,40 @@ func (h ReminderHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.write(w, http.StatusCreated, result)
 		return
 	}
+	if item && r.Method == http.MethodDelete {
+		var body struct {
+			RequestID       string `json:"request_id"`
+			Reason          string `json:"reason"`
+			ExpectedVersion uint64 `json:"expected_schedule_version"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10))
+		decoder.DisallowUnknownFields()
+		body.Reason = ""
+		if r.Header.Get("Content-Type") != "application/json" || decoder.Decode(&body) != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) {
+			(RouteHandler{}).writeProblem(w, r, 400, "validation_failed", "Validation failed", false)
+			return
+		}
+		body.Reason = strings.TrimSpace(body.Reason)
+		if !validClientRequestID(body.RequestID) || len(body.Reason) < 1 || len(body.Reason) > 1000 || body.ExpectedVersion < 1 {
+			(RouteHandler{}).writeProblem(w, r, 400, "validation_failed", "Validation failed", false)
+			return
+		}
+		expected, valid := ifMatch(r)
+		if !valid || expected != body.ExpectedVersion {
+			(RouteHandler{}).writeProblem(w, r, 409, "version_conflict", "Version conflict", true)
+			return
+		}
+		result, e := h.Service.Update(r.Context(), UpdateReminderCommand{CommandMetadata: CommandMetadata{RequestID: claims.RequestID, ClientRequestID: body.RequestID, IdempotencyKey: keys[0], TenantID: claims.TenantID, UserID: claims.SubjectID, SessionID: claims.SessionID}, ReminderID: id, Action: "cancel", Reason: body.Reason, OperationID: "reminders.cancel", ExpectedVersion: body.ExpectedVersion})
+		if e != nil {
+			h.finish(w, r, e)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("ETag", `"`+strconv.FormatUint(result.Version, 10)+`"`)
+		_ = json.NewEncoder(w).Encode(result)
+		return
+	}
 	if item && r.Method == http.MethodPatch {
 		var body struct {
 			RequestID       string `json:"request_id"`
@@ -123,7 +159,7 @@ func (h ReminderHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			(RouteHandler{}).writeProblem(w, r, 409, "version_conflict", "Version conflict", true)
 			return
 		}
-		result, e := h.Service.Update(r.Context(), UpdateReminderCommand{CommandMetadata: CommandMetadata{RequestID: claims.RequestID, ClientRequestID: body.RequestID, IdempotencyKey: keys[0], TenantID: claims.TenantID, UserID: claims.SubjectID, SessionID: claims.SessionID}, ReminderID: id, Action: body.Action, Timezone: body.Timezone, LocalTime: body.LocalTime, Weekdays: body.Weekdays, Channel: body.Channel, ExpectedVersion: body.ExpectedVersion})
+		result, e := h.Service.Update(r.Context(), UpdateReminderCommand{CommandMetadata: CommandMetadata{RequestID: claims.RequestID, ClientRequestID: body.RequestID, IdempotencyKey: keys[0], TenantID: claims.TenantID, UserID: claims.SubjectID, SessionID: claims.SessionID}, ReminderID: id, Action: body.Action, Timezone: body.Timezone, LocalTime: body.LocalTime, Weekdays: body.Weekdays, Channel: body.Channel, OperationID: "reminders.update.v2", ExpectedVersion: body.ExpectedVersion})
 		if e != nil {
 			h.finish(w, r, e)
 			return
@@ -131,7 +167,7 @@ func (h ReminderHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.write(w, 200, result)
 		return
 	}
-	w.Header().Set("Allow", map[bool]string{true: "PATCH", false: "GET, POST"}[item])
+	w.Header().Set("Allow", map[bool]string{true: "PATCH, DELETE", false: "GET, POST"}[item])
 	(RouteHandler{}).writeProblem(w, r, 405, "method_not_allowed", "Method not allowed", false)
 }
 func decodeReminder(w http.ResponseWriter, r *http.Request, contentType string, target any) bool {

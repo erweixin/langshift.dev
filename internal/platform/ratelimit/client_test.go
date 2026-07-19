@@ -24,6 +24,15 @@ func TestClientOptionAllowsOnlyLoopbackWithoutTLSInDevelopment(t *testing.T) {
 	}
 }
 
+func TestClientOptionAllowsOnlyExplicitLocalComposeValkey(t *testing.T) {
+	if option, err := clientOption(ClientConfig{Addresses: []string{"valkey:6379"}, AllowInsecureDevelopment: true, AllowLocalCompose: true}); err != nil || option.TLSConfig != nil {
+		t.Fatalf("local Compose Valkey rejected: option=%#v error=%v", option, err)
+	}
+	if _, err := clientOption(ClientConfig{Addresses: []string{"other:6379"}, AllowInsecureDevelopment: true, AllowLocalCompose: true}); err == nil {
+		t.Fatal("arbitrary local Compose Valkey accepted")
+	}
+}
+
 func TestReadCredentialRejectsAmbiguousSecret(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "password")
 	if err := os.WriteFile(path, []byte("secret\nsecond"), 0o600); err != nil {

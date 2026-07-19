@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +21,8 @@ import (
 	"github.com/langshift/lites/internal/identity/api"
 	"github.com/langshift/lites/internal/payload"
 	"github.com/langshift/lites/internal/platform/ids"
+	"github.com/langshift/lites/internal/product/contentcatalog"
+	productpostgres "github.com/langshift/lites/internal/product/postgres"
 	"github.com/langshift/lites/internal/security/opaque"
 )
 
@@ -53,7 +57,12 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	const claimID = "74000000-0000-4000-8000-000000000001"
 	const sourceMissionID = "75000000-0000-4000-8000-000000000010"
 	const sourceRouteID = "78000000-0000-4000-8000-000000000001"
+	const sourceRunID = "78000000-0000-4000-8000-000000000010"
+	const sourceConversationID = "78000000-0000-4000-8000-000000000011"
+	const sourceMessageID = "78000000-0000-4000-8000-000000000012"
+	const sourceMessageEventID = "78000000-0000-4000-8000-000000000013"
 	const roleProfileID = "7a000000-0000-4000-8000-000000000001"
+	const capabilityID = "7a000000-0000-4000-8000-000000000002"
 	const expiredSubjectID = "71000000-0000-4000-8000-000000000002"
 	const expiredUserID = "72000000-0000-4000-8000-000000000002"
 	const expiredSessionID = "73000000-0000-4000-8000-000000000002"
@@ -65,7 +74,7 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	routeManifest, err := payloadStore.Put(ctx, payload.Descriptor{TenantID: systemTenant, ObjectID: sourceRouteID, Class: "route-revision", ContentType: "application/json"}, []byte(`{"steps":[{"title":"Build an AI workflow"}]}`))
+	routeManifest, err := payloadStore.Put(ctx, payload.Descriptor{TenantID: systemTenant, ObjectID: sourceRouteID, Class: "route-revision", ContentType: "application/json"}, []byte(`{"schema_version":1,"summary":"A grounded route imported from anonymous onboarding.","transferable_experience":[{"statement":"Existing delivery practice transfers.","capability_ids":["7a000000-0000-4000-8000-000000000002"],"evidence_ids":[],"confidence":"inferred"}],"gaps":[{"statement":"Practice the target workflow.","capability_ids":["7a000000-0000-4000-8000-000000000002"],"evidence_ids":[],"confidence":"inferred"}],"bridge":[{"id":"bridge_one","title":"Build the bridge","rationale":"Practice with a bounded artifact.","from_capability_ids":[],"to_capability_ids":["7a000000-0000-4000-8000-000000000002"]}],"stages":[{"id":"stage_one","title":"Understand","outcome":"Explain the workflow.","capability_ids":["7a000000-0000-4000-8000-000000000002"],"evidence_required":["written explanation"]},{"id":"stage_two","title":"Apply","outcome":"Ship a small workflow.","capability_ids":["7a000000-0000-4000-8000-000000000002"],"evidence_required":["working artifact"]}],"first_task":{"title":"Sketch the workflow","objective":"Create a bounded workflow plan.","estimated_minutes":45,"difficulty":"standard","capability_ids":["7a000000-0000-4000-8000-000000000002"],"success_criteria":["The plan has inputs, outputs, and recovery steps."]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +82,24 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	messageManifest, err := payloadStore.Put(ctx, payload.Descriptor{TenantID: systemTenant, ObjectID: sourceMessageID, Class: "run-message", ContentType: "application/json"}, []byte(`{"schema_version":1,"role":"user","content":[{"type":"text","text":"Built B2B products and led a migration."}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	messageEventManifest, err := payloadStore.Put(ctx, payload.Descriptor{TenantID: systemTenant, ObjectID: sourceMessageEventID, Class: "event-payload", ContentType: "application/json"}, []byte(`{"subject_id":"78000000-0000-4000-8000-000000000011","subject_version":2,"message_id":"78000000-0000-4000-8000-000000000012"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	bodyManifestJSON, _ := json.Marshal(bodyManifest)
+	inputManifest, _ := json.Marshal(map[string]any{
+		"schema_version":  4,
+		"mission":         map[string]any{"id": sourceMissionID, "version": 1, "route_version": 1, "claim_set_hash": "claim-set-hash-1", "source_role_profile_id": nil, "target_role_profile_id": roleProfileID},
+		"onboarding":      map[string]any{"session_id": sessionID, "version": 1, "current_role_input": map[string]any{"text": "Frontend Developer"}, "target_role_input": map[string]any{"text": "AI Application Engineer"}, "experience_payload": bodyManifest},
+		"claim_revisions": []any{}, "evidence_revisions": []any{},
+		"target_requirements":       []any{map[string]any{"id": "7a000000-0000-4000-8000-000000000003", "version": 1, "role_profile_id": roleProfileID, "capability_id": capabilityID, "requirement_level": "practiced", "rationale": "fixture", "revision": 1}},
+		"agent_profile":             map[string]any{"profile": "route_planner", "environment": "production", "channel_id": "7a000000-0000-4000-8000-000000000004", "sequence": 1, "snapshot_id": "behavior-fixture", "activated_at": now},
+		"agent_profile_snapshot_id": "behavior-fixture", "ontology_snapshot_id": "ontology-v1", "content_snapshot_id": "content-v1",
+	})
 	for _, statement := range []struct {
 		query string
 		args  []any
@@ -86,10 +112,16 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 		{`INSERT INTO identity.memberships(id,tenant_id,user_id,role,status,joined_at) VALUES($1,$3,$4,'admin','active',$6),($2,$3,$5,'admin','active',$6)`, []any{approverOneMembership, approverTwoMembership, targetTenant, approverOne, approverTwo, now}},
 		{`INSERT INTO identity.sessions(id,user_id,active_tenant_id,token_hash,csrf_secret_hash,ip_hash,user_agent_hash,last_seen_at,expires_at,reauthenticated_at) VALUES($1,$2,$3,decode(repeat('11',32),'hex'),decode(repeat('12',32),'hex'),decode(repeat('13',32),'hex'),decode(repeat('14',32),'hex'),$7,$8,$7),($4,$5,$3,decode(repeat('21',32),'hex'),decode(repeat('22',32),'hex'),decode(repeat('23',32),'hex'),decode(repeat('24',32),'hex'),$7,$8,$7),($6,$9,$3,decode(repeat('31',32),'hex'),decode(repeat('32',32),'hex'),decode(repeat('33',32),'hex'),decode(repeat('34',32),'hex'),$7,$8,$7)`, []any{initiatorSession, targetUser, targetTenant, approverOneSession, approverOne, approverTwoSession, now, now.Add(time.Hour), approverTwo}},
 		{`INSERT INTO identity.anonymous_subjects(id,anonymous_subject_hash,ephemeral_user_id,system_tenant_id,expires_at) VALUES($1,decode(repeat('ab',32),'hex'),$2,$3,$4)`, []any{subjectID, ephemeralUser, systemTenant, now.Add(time.Hour)}},
-		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'ai-product-lead',1,'active','{}','en','{}')`, []any{roleProfileID, systemTenant}},
+		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'role_ai_application_engineer',1,'active','{}','en','{}')`, []any{roleProfileID, systemTenant}},
+		{`INSERT INTO product.capabilities(id,tenant_id,slug,revision,status,spec,evidence_guidance) VALUES($1,$2,'cap_component_abstraction',1,'active','{}','{}')`, []any{capabilityID, systemTenant}},
 		{`INSERT INTO product.missions(id,tenant_id,user_id,status,target_role_profile_id,goal_payload_ref,goal_payload_hash,route_version,claim_set_hash) VALUES($1,$2,$3,'draft',$4,$5,$6,1,'claim-set-hash-1')`, []any{sourceMissionID, systemTenant, ephemeralUser, roleProfileID, goalManifest.Ref, goalManifest.Hash}},
-		{`INSERT INTO product.route_revisions(id,tenant_id,user_id,mission_id,route_version,status,claim_set_hash,base_route_version,input_manifest,route_payload_ref,route_payload_hash,agent_profile_snapshot_id,ontology_snapshot_id,content_snapshot_id) VALUES($1,$2,$3,$4,1,'proposed','claim-set-hash-1',0,'{}',$5,$6,'agent-v1','ontology-v1','content-v1')`, []any{sourceRouteID, systemTenant, ephemeralUser, sourceMissionID, routeManifest.Ref, routeManifest.Hash}},
-		{`INSERT INTO identity.onboarding_sessions(id,tenant_id,user_id,anonymous_subject_id,status,locale,current_role_input,target_role_input,experience_payload_ref,confirmed_claim_ids,route_revision_id,expires_at) VALUES($1,$2,$3,$4,'route_ready','en','{}','{}',$5,'[]',$6,$7)`, []any{sessionID, systemTenant, ephemeralUser, subjectID, string(bodyManifestJSON), sourceRouteID, now.Add(time.Hour)}},
+		{`INSERT INTO agent.runs(id,tenant_id,user_id,conversation_id,status,run_version,due_at,profile_snapshot_id,budget_snapshot) VALUES($1,$2,$3,$4,'succeeded',3,$5,'agent-v1','{}')`, []any{sourceRunID, systemTenant, ephemeralUser, sourceConversationID, now.Add(time.Hour)}},
+		{`INSERT INTO agent.conversations(id,tenant_id,user_id,mission_id,title,mode,status,last_run_id,created_at,updated_at) VALUES($1,$2,$3,$4,'Anonymous route preview','project','archived',$5,$6,$6)`, []any{sourceConversationID, systemTenant, ephemeralUser, sourceMissionID, sourceRunID, now}},
+		{`INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES($1,$2,$3,1,'ConversationMessageFinalized',1,'conversation',$4,1,$5,$6,$6,'{"kind":"system"}',$4,$7,$8)`, []any{sourceMessageEventID, systemTenant, ephemeralUser, sourceConversationID, storeEpoch, now, messageEventManifest.Ref, messageEventManifest.Hash}},
+		{`INSERT INTO agent.event_cursors(tenant_id,user_id,last_seq) VALUES($1,$2,1)`, []any{systemTenant, ephemeralUser}},
+		{`INSERT INTO agent.run_messages(id,tenant_id,user_id,run_id,role,message_index,payload_ref,payload_hash,content_hash,content_type,source_kind,trust_label,finalized_event_id,finalized_at,created_at,updated_at) VALUES($1,$2,$3,$4,'user',0,$5,$6,$6,'application/json','conversation_user','user_asserted',$7,$8,$8,$8)`, []any{sourceMessageID, systemTenant, ephemeralUser, sourceRunID, messageManifest.Ref, messageManifest.Hash, sourceMessageEventID, now}},
+		{`INSERT INTO product.route_revisions(id,tenant_id,user_id,mission_id,route_version,status,claim_set_hash,base_route_version,input_manifest,route_payload_ref,route_payload_hash,agent_profile_snapshot_id,ontology_snapshot_id,content_snapshot_id,planner_run_id) VALUES($1,$2,$3,$4,1,'proposed','claim-set-hash-1',0,$5,$6,$7,'agent-v1','ontology-v1','content-v1',$8)`, []any{sourceRouteID, systemTenant, ephemeralUser, sourceMissionID, inputManifest, routeManifest.Ref, routeManifest.Hash, sourceRunID}},
+		{`INSERT INTO identity.onboarding_sessions(id,tenant_id,user_id,anonymous_subject_id,status,locale,current_role_input,target_role_input,experience_payload_ref,confirmed_claim_ids,route_revision_id,mission_id,expires_at) VALUES($1,$2,$3,$4,'route_ready','en','{}','{}',$5,'[]',$6,$7,$8)`, []any{sessionID, systemTenant, ephemeralUser, subjectID, string(bodyManifestJSON), sourceRouteID, sourceMissionID, now.Add(time.Hour)}},
 		{`INSERT INTO identity.onboarding_claims(id,tenant_id,user_id,anonymous_subject_id,onboarding_session_id,claim_key,status,source_route_revision_id,expires_at) VALUES($1,$2,$3,$4,$5,'claim-key-1','available',$6,$7)`, []any{claimID, systemTenant, ephemeralUser, subjectID, sessionID, sourceRouteID, now.Add(time.Hour)}},
 		{`INSERT INTO identity.anonymous_subjects(id,anonymous_subject_hash,ephemeral_user_id,system_tenant_id,expires_at) VALUES($1,decode(repeat('cd',32),'hex'),$2,$3,$4)`, []any{expiredSubjectID, expiredUserID, systemTenant, now.Add(-time.Second)}},
 		{`INSERT INTO identity.onboarding_sessions(id,tenant_id,user_id,anonymous_subject_id,status,locale,current_role_input,target_role_input,confirmed_claim_ids,expires_at) VALUES($1,$2,$3,$4,'route_ready','en','{}','{}','[]',$5)`, []any{expiredSessionID, systemTenant, expiredUserID, expiredSubjectID, now.Add(-time.Second)}},
@@ -100,6 +132,11 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 		}
 	}
 	identityKey := bytes.Repeat([]byte{0x7b}, 32)
+	_, sourceFile, _, _ := runtime.Caller(0)
+	contentRelease, err := contentcatalog.Load(filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "product-content", "releases", "1.0.0")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	missionID, err := ids.DeterministicUUID(identityKey, "anonymous-claim-target-mission", "claim-key-1\x00"+targetTenant+"\x00"+targetUser)
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +173,7 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if err = admin.QueryRow(ctx, `SELECT reserved_at FROM identity.anonymous_subjects WHERE id=$1`, subjectID).Scan(&reservedAt); err != nil || reservedAt == nil {
 		t.Fatalf("subject reservation=%v error=%v", reservedAt, err)
 	}
-	destination := AnonymousClaimDestination{Pool: pool, SystemTenantID: systemTenant, IdentityKey: identityKey, Payloads: payloadStore, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, StoreEpoch: storeEpoch, Now: func() time.Time { return now }}
+	destination := AnonymousClaimDestination{Pool: pool, SystemTenantID: systemTenant, IdentityKey: identityKey, Payloads: payloadStore, Appender: eventpostgres.Appender{Now: func() time.Time { return now }}, Content: productpostgres.ContentCatalog{Pool: pool, Release: contentRelease}, StoreEpoch: storeEpoch, Now: func() time.Time { return now }}
 	reservedSaga, err := store.Load(ctx, claimID)
 	if err != nil || reservedSaga.Status != anonymousclaim.Reserved {
 		t.Fatalf("reserved saga=%#v error=%v", reservedSaga, err)
@@ -144,6 +181,46 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	destinationEventID, err := destination.CommitDestination(ctx, reservedSaga)
 	if err != nil || destinationEventID == "" {
 		t.Fatalf("destination commit event=%s error=%v", destinationEventID, err)
+	}
+	destinationReplays := make(chan error, 16)
+	for range 16 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			eventID, replayErr := destination.CommitDestination(ctx, reservedSaga)
+			if replayErr == nil && eventID != destinationEventID {
+				replayErr = errors.New("destination replay returned a different event")
+			}
+			destinationReplays <- replayErr
+		}()
+	}
+	wait.Wait()
+	close(destinationReplays)
+	for replayErr := range destinationReplays {
+		if replayErr != nil {
+			t.Fatalf("destination replay: %v", replayErr)
+		}
+	}
+	var targetRouteID, targetRouteRef, targetRouteHash string
+	var targetInput json.RawMessage
+	if err = admin.QueryRow(ctx, `SELECT r.id::text,r.route_payload_ref,r.route_payload_hash,r.input_manifest FROM product.route_revisions r WHERE r.tenant_id=$1 AND r.mission_id=$2`, targetTenant, missionID).Scan(&targetRouteID, &targetRouteRef, &targetRouteHash, &targetInput); err != nil {
+		t.Fatal(err)
+	}
+	remappedRoute, err := payloadStore.Get(ctx, payload.Descriptor{TenantID: targetTenant, ObjectID: targetRouteID, Class: "route-revision", ContentType: "application/json"}, payload.Manifest{Ref: targetRouteRef, Hash: targetRouteHash})
+	if err != nil || bytes.Contains(remappedRoute, []byte(roleProfileID)) || bytes.Contains(remappedRoute, []byte(capabilityID)) || bytes.Contains(targetInput, []byte(roleProfileID)) || bytes.Contains(targetInput, []byte(capabilityID)) {
+		t.Fatalf("claim content was not remapped: route=%s input=%s error=%v", remappedRoute, targetInput, err)
+	}
+	var remappedManifest struct {
+		Onboarding struct {
+			SessionID         string           `json:"session_id"`
+			ExperiencePayload payload.Manifest `json:"experience_payload"`
+		} `json:"onboarding"`
+	}
+	if json.Unmarshal(targetInput, &remappedManifest) != nil || remappedManifest.Onboarding.SessionID != sessionID || remappedManifest.Onboarding.ExperiencePayload.Ref == "" || remappedManifest.Onboarding.ExperiencePayload.Ref == bodyManifest.Ref {
+		t.Fatalf("remapped onboarding manifest=%s", targetInput)
+	}
+	if importedBody, bodyErr := payloadStore.Get(ctx, payload.Descriptor{TenantID: targetTenant, ObjectID: sessionID, Class: "onboarding-body", ContentType: "application/json"}, remappedManifest.Onboarding.ExperiencePayload); bodyErr != nil || !bytes.Contains(importedBody, []byte("Built B2B products")) {
+		t.Fatalf("target onboarding body=%s error=%v", importedBody, bodyErr)
 	}
 	manualReview, err := anonymousclaim.Advance(reservedSaga, anonymousclaim.Input{ExpectedVersion: reservedSaga.Version, Command: anonymousclaim.Escalate})
 	if err != nil {
@@ -201,7 +278,7 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if err != nil || reconciled.Status != anonymousclaim.DestinationCommitted || reconciled.Version != manualReview.Version+1 {
 		t.Fatalf("reconciled claim=%#v error=%v", reconciled, err)
 	}
-	eraser := AnonymousClaimEraser{Pool: pool, SystemTenantID: systemTenant, IdentityKey: identityKey, Objects: blobs, Now: func() time.Time { return now }}
+	eraser := AnonymousClaimEraser{Pool: pool, SystemTenantID: systemTenant, IdentityKey: identityKey, Objects: blobs, Now: func() time.Time { return now.Add(123456789 * time.Nanosecond) }}
 	claimService.Destination = destination
 	claimService.Eraser = eraser
 	const reconcilers = 16
@@ -260,20 +337,30 @@ func TestAnonymousClaimStoreConvergesWithRLSAndProtectsReservationFromExpiry(t *
 	if _, goalErr := blobs.Get(ctx, goalManifest.Ref); goalErr == nil {
 		t.Fatal("anonymous mission goal blob survived erasure")
 	}
-	var receiptCount, sourceMissions, sourceRoutes, targetMissions, targetRoutes, missionImports, destinationEvents, destinationOutbox, sourcePublishedOutbox, completedInbox int
+	if _, messageErr := blobs.Get(ctx, messageManifest.Ref); messageErr == nil {
+		t.Fatal("anonymous route-planner message blob survived erasure")
+	}
+	if _, eventErr := blobs.Get(ctx, messageEventManifest.Ref); eventErr == nil {
+		t.Fatal("anonymous route-planner event blob survived erasure")
+	}
+	if importedBody, bodyErr := payloadStore.Get(ctx, payload.Descriptor{TenantID: targetTenant, ObjectID: sessionID, Class: "onboarding-body", ContentType: "application/json"}, remappedManifest.Onboarding.ExperiencePayload); bodyErr != nil || !bytes.Contains(importedBody, []byte("Built B2B products")) {
+		t.Fatalf("claimed onboarding body was erased with anonymous source: %s error=%v", importedBody, bodyErr)
+	}
+	var receiptCount, sourceMissions, sourceRoutes, sourceConversations, targetMissions, targetRoutes, missionImports, destinationEvents, destinationOutbox, dailyCommands, focusedMissions, sourcePublishedOutbox, completedInbox int
 	var deletedAt *time.Time
 	var experiencePayload *string
-	if err = admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM identity.anonymous_erasure_receipts WHERE claim_id=$1),(SELECT count(*) FROM product.missions WHERE id=$2),(SELECT count(*) FROM product.route_revisions WHERE id=$3),(SELECT experience_payload_ref FROM identity.onboarding_sessions WHERE id=$4),(SELECT count(*) FROM product.missions WHERE id=$5 AND tenant_id=$6 AND user_id=$7),(SELECT count(*) FROM product.route_revisions WHERE tenant_id=$6 AND mission_id=$5 AND status='accepted'),(SELECT count(*) FROM product.mission_imports WHERE tenant_id=$6 AND claim_key='claim-key-1'),(SELECT count(*) FROM agent.events WHERE tenant_id=$6 AND id=$8),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$6 AND aggregate_id=$1),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$9 AND aggregate_id=$1 AND status='published'),(SELECT count(*) FROM agent.inbox WHERE tenant_id=$9 AND command_id=$10 AND status='completed')`, claimID, sourceMissionID, sourceRouteID, sessionID, missionID, targetTenant, targetUser, final.DestinationCommitEventID, systemTenant, reconcileCommand.CommandID).Scan(&receiptCount, &sourceMissions, &sourceRoutes, &experiencePayload, &targetMissions, &targetRoutes, &missionImports, &destinationEvents, &destinationOutbox, &sourcePublishedOutbox, &completedInbox); err != nil {
+	var sourceSessionMission, sourceSessionRoute *string
+	if err = admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM identity.anonymous_erasure_receipts WHERE claim_id=$1),(SELECT count(*) FROM product.missions WHERE id=$2),(SELECT count(*) FROM product.route_revisions WHERE id=$3),(SELECT count(*) FROM agent.conversations WHERE id=$11),(SELECT experience_payload_ref FROM identity.onboarding_sessions WHERE id=$4),(SELECT mission_id::text FROM identity.onboarding_sessions WHERE id=$4),(SELECT route_revision_id::text FROM identity.onboarding_sessions WHERE id=$4),(SELECT count(*) FROM product.missions WHERE id=$5 AND tenant_id=$6 AND user_id=$7),(SELECT count(*) FROM product.route_revisions WHERE tenant_id=$6 AND mission_id=$5 AND status='accepted'),(SELECT count(*) FROM product.mission_imports WHERE tenant_id=$6 AND claim_key='claim-key-1'),(SELECT count(*) FROM agent.events WHERE tenant_id=$6 AND id=$8),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$6 AND aggregate_id=$1),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$6 AND aggregate_id=$5 AND command_type='GenerateDailyTask'),(SELECT count(*) FROM product.mission_focuses WHERE tenant_id=$6 AND user_id=$7 AND mission_id=$5 AND focus_version=1),(SELECT count(*) FROM agent.outbox WHERE tenant_id=$9 AND aggregate_id=$1 AND status='published'),(SELECT count(*) FROM agent.inbox WHERE tenant_id=$9 AND command_id=$10 AND status='completed')`, claimID, sourceMissionID, sourceRouteID, sessionID, missionID, targetTenant, targetUser, final.DestinationCommitEventID, systemTenant, reconcileCommand.CommandID, sourceConversationID).Scan(&receiptCount, &sourceMissions, &sourceRoutes, &sourceConversations, &experiencePayload, &sourceSessionMission, &sourceSessionRoute, &targetMissions, &targetRoutes, &missionImports, &destinationEvents, &destinationOutbox, &dailyCommands, &focusedMissions, &sourcePublishedOutbox, &completedInbox); err != nil {
 		t.Fatal(err)
 	}
 	if err = admin.QueryRow(ctx, `SELECT deleted_at FROM identity.anonymous_subjects WHERE id=$1`, subjectID).Scan(&deletedAt); err != nil || deletedAt == nil || receiptCount != 3 {
 		t.Fatalf("deleted_at=%v receipts=%d error=%v", deletedAt, receiptCount, err)
 	}
-	if sourceMissions != 0 || sourceRoutes != 0 || experiencePayload != nil {
-		t.Fatalf("source_missions=%d source_routes=%d experience_payload=%v", sourceMissions, sourceRoutes, experiencePayload)
+	if sourceMissions != 0 || sourceRoutes != 0 || sourceConversations != 0 || experiencePayload != nil || sourceSessionMission != nil || sourceSessionRoute != nil {
+		t.Fatalf("source_missions=%d source_routes=%d source_conversations=%d experience_payload=%v session_mission=%v session_route=%v", sourceMissions, sourceRoutes, sourceConversations, experiencePayload, sourceSessionMission, sourceSessionRoute)
 	}
-	if targetMissions != 1 || targetRoutes != 1 || missionImports != 1 || destinationEvents != 1 || destinationOutbox != 1 {
-		t.Fatalf("target_missions=%d target_routes=%d imports=%d events=%d outbox=%d", targetMissions, targetRoutes, missionImports, destinationEvents, destinationOutbox)
+	if targetMissions != 1 || targetRoutes != 1 || missionImports != 1 || destinationEvents != 1 || destinationOutbox != 1 || dailyCommands != 1 || focusedMissions != 1 {
+		t.Fatalf("target_missions=%d target_routes=%d imports=%d events=%d outbox=%d daily=%d focus=%d", targetMissions, targetRoutes, missionImports, destinationEvents, destinationOutbox, dailyCommands, focusedMissions)
 	}
 	if sourcePublishedOutbox != 4 || completedInbox != 1 {
 		t.Fatalf("source_published_outbox=%d completed_inbox=%d", sourcePublishedOutbox, completedInbox)

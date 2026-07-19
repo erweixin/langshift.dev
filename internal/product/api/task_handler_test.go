@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 type dailyTaskServiceStub struct {
@@ -20,17 +22,30 @@ func (stub dailyTaskServiceStub) Update(_ context.Context, command UpdateDailyTa
 }
 
 func TestDailyTaskListUsesOwnerScope(t *testing.T) {
+	submissionID := "b9000000-0000-4000-8000-000000000010"
+	generationID := "b9000000-0000-4000-8000-000000000011"
+	generationStatus := "generating"
 	service := dailyTaskServiceStub{list: func(query DailyTaskListQuery) (DailyTaskListResult, error) {
 		if query.TenantID == "" || query.UserID == "" || query.Cursor != "signed" {
 			t.Fatalf("query=%#v", query)
 		}
-		return DailyTaskListResult{}, nil
+		return DailyTaskListResult{Items: []DailyTaskResource{{ID: "b9000000-0000-4000-8000-000000000001", MissionID: "b9000000-0000-4000-8000-000000000002", RouteRevisionID: "b9000000-0000-4000-8000-000000000003", Version: 3, Status: "submitted", PracticeKind: "code", Task: json.RawMessage(`{"schema_version":1}`), EstimatedMinutes: 30, Difficulty: "standard", FocusVersion: 1, ScheduledFor: "2026-07-18", CurrentSubmissionID: &submissionID, ReviewRecovery: &ReviewRecoveryResource{SubmissionID: submissionID, SubmissionRevision: 1, GenerationID: &generationID, GenerationStatus: &generationStatus}, CreatedAt: time.Now(), UpdatedAt: time.Now()}}}, nil
 	}}
 	request := authenticatedMissionRequest(t, http.MethodGet, "/v1/daily-tasks?cursor=signed", "", "", "", "", false)
 	recorder := httptest.NewRecorder()
 	request.handler(DailyTaskHandler{Service: service}).ServeHTTP(recorder, request.request)
 	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Type") != "application/vnd.lites.daily-tasks.v2+json" {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]any
+	if json.Unmarshal(recorder.Body.Bytes(), &body) != nil {
+		t.Fatalf("invalid body=%s", recorder.Body.String())
+	}
+	items, _ := body["items"].([]any)
+	item, _ := items[0].(map[string]any)
+	recovery, _ := item["review_recovery"].(map[string]any)
+	if item["mission_id"] == nil || item["route_revision_id"] == nil || recovery["generation_id"] != generationID {
+		t.Fatalf("daily task JSON tags/recovery drifted: %s", recorder.Body.String())
 	}
 }
 

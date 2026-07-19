@@ -21,6 +21,8 @@ import (
 	"github.com/langshift/lites/internal/observability"
 	"github.com/langshift/lites/internal/payload"
 	"github.com/langshift/lites/internal/payload/vaultkeys"
+	"github.com/langshift/lites/internal/product/contentcatalog"
+	productpostgres "github.com/langshift/lites/internal/product/postgres"
 	"github.com/langshift/lites/internal/security/opaque"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -44,6 +46,7 @@ func main() {
 func run(parent context.Context, configuration config, logger *slog.Logger) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	localCompose := configuration.environment == "engineering-test" && os.Getenv("LITES_LOCAL_COMPOSE") == "true"
 	inboxPepper, err := readBase64Secret(configuration.inboxPepperFile)
 	if err != nil {
 		return errors.New("load inbox lease pepper")
@@ -55,6 +58,10 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	claimIdentityKey, err := readBase64Secret(configuration.claimIdentityKeyFile)
 	if err != nil {
 		return errors.New("load claim identity key")
+	}
+	contentRelease, err := contentcatalog.Load(configuration.contentReleaseDirectory)
+	if err != nil {
+		return errors.New("load immutable product content release")
 	}
 	epochToken := ""
 	if configuration.epochTokenFile != "" {
@@ -90,15 +97,19 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("connect nats")
 	}
 	defer connection.Close()
-	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure object store")
 	}
 	payloadBlobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 32 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
 	importSources := s3store.Store{Client: s3Client, Bucket: configuration.importBucket, Prefix: configuration.importPrefix, MaxBytes: 5 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID}
-	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSServerName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSServerName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure Vault")
+	}
+	payloadKeys, err := vaultkeys.ProviderForEnvironment(configuration.environment, localCompose, os.Getenv("LITES_LOCAL_PAYLOAD_KEY_SEED_FILE"), vaultReader, configuration.vaultKeyPrefix)
+	if err != nil {
+		return errors.New("configure payload keys")
 	}
 	dependencyCtx, dependencyCancel := context.WithTimeout(ctx, 5*time.Second)
 	if payloadBlobs.Ready(dependencyCtx) != nil || importSources.Ready(dependencyCtx) != nil || vaultReader.Ready(dependencyCtx) != nil {
@@ -106,7 +117,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("storage dependency is not ready")
 	}
 	dependencyCancel()
-	payloadStore := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: payloadBlobs}
+	payloadStore := payload.EnvelopeStore{Keys: payloadKeys, Blobs: payloadBlobs}
 	invitationSubject, _ := natsjs.SubjectFor("identity.invitation_import.process")
 	membershipSubject, _ := natsjs.SubjectFor("identity.membership_import.process")
 	claimSubject, _ := natsjs.SubjectFor(identitypostgres.AnonymousClaimReconcileCommand)
@@ -126,7 +137,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	service := identitypostgres.AuthService{Pool: pool, ImportSources: importSources, InvitationTokens: opaque.Manager{Purpose: "invitation", Pepper: invitationPepper}, StoreEpoch: storeEpoch, Payloads: payloadStore, Appender: appender}
 	dispatcher := identitypostgres.IdentityImportDispatcher{Service: service, Inbox: inbox, ConsumerName: configuration.consumerName}
 	claimStore := identitypostgres.AnonymousClaimStore{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Payloads: payloadStore, Appender: appender, StoreEpoch: storeEpoch}
-	claimService := anonymousclaim.Service{Store: claimStore, Destination: identitypostgres.AnonymousClaimDestination{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Payloads: payloadStore, Appender: appender, StoreEpoch: storeEpoch}, Eraser: identitypostgres.AnonymousClaimEraser{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Objects: payloadBlobs}}
+	claimService := anonymousclaim.Service{Store: claimStore, Destination: identitypostgres.AnonymousClaimDestination{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Payloads: payloadStore, Appender: appender, Content: productpostgres.ContentCatalog{Pool: pool, Release: contentRelease}, StoreEpoch: storeEpoch}, Eraser: identitypostgres.AnonymousClaimEraser{Pool: pool, SystemTenantID: configuration.publicTenantID, IdentityKey: claimIdentityKey, Objects: payloadBlobs}}
 	claimDispatcher := identitypostgres.AnonymousClaimDispatcher{Reconciler: claimService, Payloads: payloadStore, Inbox: inbox, StoreEpoch: storeEpoch, ConsumerName: configuration.consumerName}
 	consumer := natsjs.Consumer{Source: source, Handle: func(ctx context.Context, command eventpostgres.DeliveredCommand) error {
 		if command.CommandType == identitypostgres.AnonymousClaimReconcileCommand {

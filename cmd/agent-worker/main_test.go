@@ -57,6 +57,23 @@ func TestAgentWorkerConfigurationRejectsUnsafeTimingAndCapacity(t *testing.T) {
 	}
 }
 
+func TestAgentWorkerPrivateProviderIsEngineeringTestOnly(t *testing.T) {
+	value := validDevelopmentConfig()
+	value.privateEngineeringProviderHost = "model-adapter.lites.test"
+	value.providerRootCAFile = "local-ca.pem"
+	if value.validate() == nil {
+		t.Fatal("development environment accepted private provider")
+	}
+	value.environment = "engineering-test"
+	if err := value.validate(); err != nil {
+		t.Fatalf("engineering provider rejected: %v", err)
+	}
+	value.privateEngineeringProviderHost = "arbitrary.example"
+	if value.validate() == nil {
+		t.Fatal("arbitrary engineering private host accepted")
+	}
+}
+
 func validDevelopmentConfig() config {
 	return config{
 		databaseURL: "postgres://localhost/lites", epochURL: "http://127.0.0.1:8080", natsURLs: []string{"nats://127.0.0.1:4222"},

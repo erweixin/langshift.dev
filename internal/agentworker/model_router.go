@@ -68,6 +68,19 @@ type RouteArtifact struct {
 	routes                                           map[string]RouteDefinition
 }
 
+// FinalizeRouteDefinitions computes the immutable model and router hashes with
+// the same canonicalization used by EncodeRouteArtifact. Release assemblers
+// and engineering adapters use this to build behavior manifests that cannot
+// drift from the artifact consumed by AgentWorker.
+func FinalizeRouteDefinitions(routes []RouteDefinition) ([]RouteDefinition, error) {
+	envelope := routeArtifactEnvelope{SchemaVersion: 1, SourceCommit: "0000000000000000000000000000000000000000", GeneratedAt: time.Unix(1, 0).UTC(), Routes: routes}
+	canonical, _, _, err := canonicalRouteEnvelope(envelope, true)
+	if err != nil {
+		return nil, err
+	}
+	return append([]RouteDefinition(nil), canonical.Routes...), nil
+}
+
 func EncodeRouteArtifact(routes []RouteDefinition, sourceCommit string, generatedAt time.Time) ([]byte, string, error) {
 	envelope := routeArtifactEnvelope{SchemaVersion: 1, SourceCommit: sourceCommit, GeneratedAt: generatedAt, Routes: routes}
 	canonical, hash, _, err := canonicalRouteEnvelope(envelope, true)

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	billingpostgres "github.com/langshift/lites/internal/billing/postgres"
 	contractsapi "github.com/langshift/lites/internal/contracts/api"
 	contractspostgres "github.com/langshift/lites/internal/contracts/postgres"
 	"github.com/langshift/lites/internal/eventstore/epoch"
@@ -46,6 +47,7 @@ func main() {
 func run(parent context.Context, configuration config, logger *slog.Logger) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	localCompose := configuration.environment == "engineering-test" && os.Getenv("LITES_LOCAL_COMPOSE") == "true"
 	secrets, err := loadSecretBundle(configuration.secretBundleFile)
 	if err != nil {
 		return err
@@ -84,14 +86,18 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("connect database")
 	}
 	defer pool.Close()
-	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure object store")
 	}
 	blobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 1 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
-	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure Vault")
+	}
+	payloadKeys, err := vaultkeys.ProviderForEnvironment(configuration.environment, localCompose, os.Getenv("LITES_LOCAL_PAYLOAD_KEY_SEED_FILE"), vaultReader, configuration.vaultKeyPrefix)
+	if err != nil {
+		return errors.New("configure payload keys")
 	}
 	dependencyCtx, dependencyCancel := context.WithTimeout(ctx, 5*time.Second)
 	dependencyErr := contractDependenciesReady(dependencyCtx, pool, blobs, vaultReader)
@@ -103,14 +109,20 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return errors.New("configure observability")
 	}
-	payloads := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: blobs}
+	payloads := payload.EnvelopeStore{Keys: payloadKeys, Blobs: blobs}
 	service := contractspostgres.ControlService{
 		Pool: pool, Appender: eventpostgres.Appender{Observer: telemetry.AgentMetrics()}, Payloads: payloads,
 		IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper,
 		StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, ProposalTTL: configuration.proposalTTL,
 		Now: func() time.Time { return time.Now().UTC() },
 	}
-	application := serviceauth.Middleware{Verifier: trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: trustedKeys, KeyWindows: trustedWindows, MaximumTTL: 2 * time.Minute, ClockSkew: 5 * time.Second}, Now: func() time.Time { return time.Now().UTC() }}.Wrap(contractsapi.Handler{Service: service})
+	billing := billingpostgres.Store{Pool: pool, Appender: eventpostgres.Appender{Observer: telemetry.AgentMetrics()}, Epochs: authority, StoreEpoch: storeEpoch, IDKey: secrets.IDKey, Now: func() time.Time { return time.Now().UTC() }}
+	internalUsage := contractspostgres.InternalUsageService{Pool: pool, Billing: billing, Payloads: payloads, IDKey: secrets.IDKey, Now: func() time.Time { return time.Now().UTC() }}
+	adminApplication := serviceauth.Middleware{Verifier: trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: trustedKeys, KeyWindows: trustedWindows, MaximumTTL: 2 * time.Minute, ClockSkew: 5 * time.Second}, Now: func() time.Time { return time.Now().UTC() }}.Wrap(contractsapi.Handler{Service: service})
+	application := http.NewServeMux()
+	application.Handle("/v1/internal/usage/reservations", contractsapi.InternalUsageHandler{Service: internalUsage, Authorize: contractsapi.NewWorkloadAuthorizer(configuration.internalUsageWorkloadIdentities, configuration.allowInsecureDevelopment)})
+	application.Handle("/v1/internal/usage/reservations/", contractsapi.InternalUsageHandler{Service: internalUsage, Authorize: contractsapi.NewWorkloadAuthorizer(configuration.internalUsageWorkloadIdentities, configuration.allowInsecureDevelopment)})
+	application.Handle("/", adminApplication)
 	tlsConfig, err := serverTLSConfig(configuration)
 	if err != nil {
 		return err

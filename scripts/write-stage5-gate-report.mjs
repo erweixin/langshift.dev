@@ -33,7 +33,7 @@ const macOS = await readFile(resolve(root, "docs/development-macos.md"), "utf8")
 const results = [];
 const check = (id, passed, details) => results.push({ id, status: passed ? "passed" : "failed", details });
 check("EVIDENCE-COMPLETE", evidence.length === evidenceFiles.length && evidence.every((item) => item.status === "passed" && item.reportHash), "all Stage 5 contract, browser, replay, reconciliation, security, and delivery reports pass");
-check("MIGRATION-CURRENT", latest?.version === 87 && latest?.name === "product_content_rubric_activation", "database evidence is bound to migration 87");
+check("MIGRATION-CURRENT", Number.isInteger(latest?.version) && latest.version > 0 && typeof latest.name === "string" && latest.name.length > 0 && typeof latest.up === "string" && typeof latest.down === "string" && /^[0-9a-f]{64}$/.test(latest.up_sha256 ?? "") && /^[0-9a-f]{64}$/.test(latest.down_sha256 ?? ""), `database evidence resolves the current manifest migration ${latest?.version ?? "missing"}`);
 check("MACOS-FIRECRACKER-EXEMPT", macOS.includes("Firecracker is intentionally outside the macOS local gate") && macOS.includes("production Linux runtime-host implementation remains"), "macOS development explicitly skips Firecracker while Linux production delivery remains in scope");
 check("COMMERCIAL-EVIDENCE", evidence.some((item) => item.kind === "contract-control-plane-contract") && evidence.some((item) => item.kind === "private-delivery-definition") && evidence.some((item) => item.kind === "support-case-control-plane-contract"), "contract, entitlements, private delivery, and support evidence are present");
 const failures = results.filter((result) => result.status === "failed");

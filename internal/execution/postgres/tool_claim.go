@@ -188,7 +188,7 @@ func (store RunStore) ClaimTool(ctx context.Context, command ClaimToolCommand) (
 		}
 	}
 	var jobID string
-	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND available_at<=$1 AND (due_at IS NULL OR due_at>$1) RETURNING id::text`, now, command.Command.TenantID, command.Command.CommandID).Scan(&jobID)
+	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND ($4 OR available_at<=$1) AND (due_at IS NULL OR due_at>$1) RETURNING id::text`, now, command.Command.TenantID, command.Command.CommandID, store.RequireDispatchFence).Scan(&jobID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ToolClaim{}, ErrToolNotClaimable
 	}

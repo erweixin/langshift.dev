@@ -49,7 +49,7 @@ check("ENTERPRISE-EVENT-FIXTURE",programFixture?.fromVersion===1&&programFixture
 const failures=results.filter(result=>result.status==="failed");
 const base={reportVersion:"1.0.0",stage:5,kind:"enterprise-privacy-contract",generatedAt:new Date().toISOString(),status:failures.length?"failed":"passed",summary:{checks:results.length,passed:results.length-failures.length,failed:failures.length},contractHash:hash(contract),results};
 const report={...base,reportHash:hash(base)};
-const target=resolve(root,"gate-reports/stage-5/enterprise-privacy-contract.json");
+const target=resolve(root,process.env.LITES_GATE_REPORT_ROOT??"gate-reports","stage-5/enterprise-privacy-contract.json");
 await mkdir(dirname(target),{recursive:true});
 await writeFile(target,`${JSON.stringify(report,null,2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} checks; report ${report.reportHash}`);

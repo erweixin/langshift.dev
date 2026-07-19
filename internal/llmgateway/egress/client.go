@@ -3,6 +3,7 @@ package egress
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -70,6 +71,7 @@ type ClientConfig struct {
 	MaximumRedirects int
 	MaximumBodyBytes int64
 	BaseTransport    http.RoundTripper
+	RootCAs          *x509.CertPool
 }
 
 func NewBroker(ctx context.Context, config ClientConfig) (*Broker, error) {
@@ -104,7 +106,7 @@ func NewBroker(ctx context.Context, config ClientConfig) (*Broker, error) {
 			ResponseHeaderTimeout:  config.ResponseHeader,
 			ExpectContinueTimeout:  time.Second,
 			MaxResponseHeaderBytes: 1 << 20,
-			TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12, ServerName: config.Endpoint.BoundHost},
+			TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12, ServerName: config.Endpoint.BoundHost, RootCAs: config.RootCAs},
 		}
 	}
 	authenticated := boundCredentialTransport{next: transport, endpoint: config.Endpoint, secrets: config.Secrets, credential: config.Credential, maximumBodyBytes: config.MaximumBodyBytes}
@@ -215,7 +217,7 @@ func boundDialer(endpoint Endpoint, policy EndpointPolicy, dial DialContext) Dia
 		if err != nil || len(addresses) == 0 {
 			return nil, ErrUnsafeEndpoint
 		}
-		if err = validateAddresses(addresses, policy.PlatformNetworks); err != nil {
+		if err = policy.validateAddresses(host, addresses); err != nil {
 			return nil, err
 		}
 		var failures []error

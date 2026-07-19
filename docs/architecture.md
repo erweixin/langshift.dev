@@ -1,6 +1,8 @@
-# Lites Cloud Agent 架构设计
+# Lites 内部 Cloud Agent 架构设计
 
-Lites 是一个 production-first 的 Cloud Agent 平台设计。它不把 Agent 当成一次“API 调模型”的同步请求，而是把它当成一段会排队、会暂停、会调用工具、会写 workspace、会等待审批、也会失败恢复的长期任务。
+Lites 是职业迁移垂直 SaaS；本文描述的是支撑路线规划、每日任务、辅导、评估和作品构建的 production-first 内部 Cloud Agent 执行内核。它不把 Agent 当成一次“API 调模型”的同步请求，而是把它当成一段会排队、会暂停、会调用内部工具、会写 workspace、会等待审批、也会失败恢复的长期任务。
+
+本文的“平台”一词只表示 Lites 自有产品内部的执行与治理层，不是对外产品边界。本轮不提供开发者 token、公共 SDK、自定义 Agent/Profile、通用 Tool 托管或 Marketplace；对外范围以 [职业迁移 SaaS 商业化实施计划](./product-implementation-plan.md) 为准。
 
 本文是总入口，只讲架构方案，不绑定当前项目已经实现到哪一步。第一次阅读时，先看“核心心智模型”和“设计支柱”；真正实现时，再顺着专题文档查状态机、持久化、安全、运行时和容量细节。
 
@@ -57,7 +59,7 @@ Lites 是一个 production-first 的 Cloud Agent 平台设计。它不把 Agent 
 
 **问题**：Agent 任务不是一次普通 HTTP 请求。它会排队、调用模型、调用工具、修改 workspace、等待审批、断线重连、被取消、失败重试，还可能在外部副作用发生后崩溃。
 
-**决策**：把系统设计成以 PostgreSQL 为持久化核心的可恢复工作流和 Agent 执行平台。EventStore 记录编排事实和决策过程；命令通过 outbox 发布；Worker 只做短事务占位和短事务提交，中间的长时间 I/O 依靠 CAS、fence 和幂等合约保护。
+**决策**：把内部执行层设计成以 PostgreSQL 为持久化核心的可恢复工作流和 Agent 执行内核。EventStore 记录编排事实和决策过程；命令通过 outbox 发布；Worker 只做短事务占位和短事务提交，中间的长时间 I/O 依靠 CAS、fence 和幂等合约保护。
 
 **为什么不简单做成 API → MQ → Worker → 回写数据库**：这条链路看起来直观，但一旦遇到重复投递、Worker 崩溃、取消竞态、并行工具完成、外部副作用未知，就没有一个统一的地方能回答“系统现在到底知道什么”。结果很容易变成重复执行、错误续跑，或者已经结束的状态又被改掉。
 

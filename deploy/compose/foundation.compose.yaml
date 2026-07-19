@@ -17,7 +17,11 @@ services:
       - postgres_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../../contracts/database:/docker-entrypoint-initdb.d:ro
+      # Mount the two executable init files explicitly. A read-only directory
+      # bind here prevents the macOS product overlay from adding its later
+      # migration/role initializer below the same entrypoint directory.
+      - ../../contracts/database/000001_contract_baseline.sql:/docker-entrypoint-initdb.d/000001_contract_baseline.sql:ro
+      - ../../contracts/database/900000_verify_contract.sql:/docker-entrypoint-initdb.d/900000_verify_contract.sql:ro
     networks: [foundation]
     security_opt: [no-new-privileges:true]
     healthcheck:
@@ -160,6 +164,7 @@ services:
     command: [--config.file=/etc/prometheus/prometheus.yaml, --storage.tsdb.path=/prometheus, --web.enable-lifecycle]
     volumes:
       - ../observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ../observability/prometheus-rules.yaml:/etc/prometheus/rules/lites.yaml:ro
       - prometheus_data:/prometheus
     networks: [foundation]
     read_only: true
@@ -187,6 +192,8 @@ services:
       loki: {condition: service_started}
     volumes:
       - ../observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/lites.yaml:ro
+      - ../observability/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/lites.yaml:ro
+      - ../observability/grafana-lites-overview.json:/var/lib/grafana/dashboards/lites-overview.json:ro
       - grafana_data:/var/lib/grafana
     networks: [foundation]
     cap_drop: [ALL]

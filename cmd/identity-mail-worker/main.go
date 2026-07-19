@@ -43,6 +43,7 @@ func main() {
 func run(parent context.Context, configuration config, logger *slog.Logger) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	localCompose := configuration.environment == "engineering-test" && os.Getenv("LITES_LOCAL_COMPOSE") == "true"
 	inboxPepper, err := readBase64Secret(configuration.inboxPepperFile)
 	if err != nil {
 		return errors.New("load inbox lease pepper")
@@ -81,14 +82,18 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("connect nats")
 	}
 	defer connection.Close()
-	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure object store")
 	}
 	payloadBlobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 32 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
-	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSServerName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSServerName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure Vault")
+	}
+	payloadKeys, err := vaultkeys.ProviderForEnvironment(configuration.environment, localCompose, os.Getenv("LITES_LOCAL_PAYLOAD_KEY_SEED_FILE"), vaultReader, configuration.vaultKeyPrefix)
+	if err != nil {
+		return errors.New("configure payload keys")
 	}
 	sender, appURL, err := configuration.smtp()
 	if err != nil {
@@ -100,7 +105,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("mail worker dependency is not ready")
 	}
 	dependencyCancel()
-	payloadStore := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: payloadBlobs}
+	payloadStore := payload.EnvelopeStore{Keys: payloadKeys, Blobs: payloadBlobs}
 	mailTypes := []string{"identity.email.verify", "identity.email.password_reset", "identity.email.change.verify", "identity.email.invitation", "identity.email.security"}
 	filterSubjects := make([]string, 0, len(mailTypes))
 	for _, commandType := range mailTypes {

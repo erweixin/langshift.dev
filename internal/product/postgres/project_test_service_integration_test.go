@@ -179,6 +179,10 @@ func TestProjectTestGenerationAtomicallyPinsExactProjectWorkspaceAndEvaluator(t 
 	if err != nil || generationStatus != "succeeded" || finalProjectVersion != submitted.Version+1 || testResult != "passed" || testRows != 1 || evidenceRows != 1 || projectEvents != 1 || evidenceEvents != 1 {
 		t.Fatalf("generation=%s project=%d result=%s tests=%d evidence=%d project_events=%d evidence_events=%d err=%v", generationStatus, finalProjectVersion, testResult, testRows, evidenceRows, projectEvents, evidenceEvents, err)
 	}
+	snapshot, err := projects.Get(ctx, productapi.ProjectGetQuery{TenantID: tenantID, UserID: userID, ProjectID: created.ID})
+	if err != nil || snapshot.Project.Version != finalProjectVersion || snapshot.Brief != "Build a production-grade exact output and prove every acceptance condition." || snapshot.Workspace == nil || snapshot.Workspace.ID != workspace.Workspace.ID || len(snapshot.Milestones) != 1 || snapshot.Milestones[0].Result == nil || *snapshot.Milestones[0].Result != "The exact workspace output is ready for independent evaluation." || len(snapshot.Milestones[0].EvidenceIDs) != 1 || snapshot.Milestones[0].LatestEvaluation == nil || snapshot.Milestones[0].LatestEvaluation.Status != "succeeded" || snapshot.Milestones[0].LatestEvaluation.RunID != generated.RunID {
+		t.Fatalf("reconciled recovery snapshot=%#v err=%v", snapshot, err)
+	}
 	replayedReconcile, err := reconciler.ReconcileTenant(ctx, tenantID, 100)
 	if err != nil || replayedReconcile.Scanned != 0 {
 		t.Fatalf("reconcile replay=%#v err=%v", replayedReconcile, err)

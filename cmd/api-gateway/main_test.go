@@ -114,6 +114,17 @@ func TestContractRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 	}
 }
 
+func TestProductAggregateSnapshotRoutingIsExact(t *testing.T) {
+	if !isProductRoute("/v1/admin/aggregate-snapshots") {
+		t.Fatal("aggregate snapshot route was not forwarded to Product Service")
+	}
+	for _, path := range []string{"/v1/admin/aggregate-snapshots/", "/v1/admin/aggregate-snapshots/export"} {
+		if isProductRoute(path) {
+			t.Fatalf("lookalike route %q was accepted", path)
+		}
+	}
+}
+
 func TestProductRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 	id := "10000000-0000-4000-8000-000000000001"
 	tests := []struct {
@@ -133,7 +144,12 @@ func TestProductRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 		{path: "/v1/reviews", want: true},
 		{path: "/v1/reviews/" + id, want: true},
 		{path: "/v1/capability-evidence", want: true},
+		{path: "/v1/capability-claims", want: true},
+		{path: "/v1/capability-claims/" + id + "/revisions", want: true},
 		{path: "/v1/preferences", want: true},
+		{path: "/v1/byok-credentials", want: true},
+		{path: "/v1/byok-credentials/" + id, want: true},
+		{path: "/v1/memory-policy", want: true},
 		{path: "/v1/reminder-schedules", want: true},
 		{path: "/v1/reminder-schedules/" + id, want: true},
 		{path: "/v1/projects", want: true},
@@ -171,6 +187,9 @@ func TestProductRoutingIsExactAndCannotCaptureLookalikePaths(t *testing.T) {
 		{path: "/v1/route-revisions/not-a-uuid/accept", want: false},
 		{path: "/v1/route-revisions/" + id, want: false},
 		{path: "/v1/route-revisions/" + id + "/accept/extra", want: false},
+		{path: "/v1/capability-claims/not-a-uuid/revisions", want: false},
+		{path: "/v1/capability-claims/" + id, want: false},
+		{path: "/v1/byok-credentials/not-a-uuid", want: false},
 		{path: "/v1/daily-tasks/", want: false},
 		{path: "/v1/daily-tasks/not-a-uuid", want: false},
 		{path: "/v1/daily-tasks/" + id + "/extra", want: false},

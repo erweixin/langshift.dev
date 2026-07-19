@@ -1,0 +1,775 @@
+# Docker Desktop overlay for the real macOS engineering product gate.
+#
+# This topology intentionally uses a fixture-only Provider and behavior
+# projection adapter; the browser trunk does not execute untrusted user code.
+# Runtime state/fault adapters are exercised by the Go gate, outside Compose.
+# The stack has a single local failure domain. It proves the HTTP/database product journey; it
+# is not production evidence for HA, KVM isolation, capacity, RPO, or RTO.
+
+x-local-environment: &local-environment
+  ALLOW_INSECURE_DEVELOPMENT: "true"
+  LITES_LOCAL_COMPOSE: "true"
+  LITES_LOCAL_PAYLOAD_KEY_SEED_FILE: /run/lites-local/payload-key-seed
+  LITES_ENVIRONMENT: engineering-test
+  LITES_VERSION: macos-engineering
+  LITES_REGION: local
+  TRACE_SAMPLE_RATIO: "0"
+  AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+  AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+
+x-artifact-volume: &artifact-volume
+  - ${LITES_LOCAL_ARTIFACTS_DIR:?LITES_LOCAL_ARTIFACTS_DIR is required}:/run/lites-local:ro
+
+x-go-service: &go-service
+  context: ../..
+  dockerfile: Dockerfile
+
+services:
+  # These two upstream Linux binaries segfault before main on some Intel
+  # Docker Desktop releases (even for --version). Keep the production images
+  # and configuration in foundation.compose.yaml, but do not let an unrelated
+  # host-runtime incompatibility block the macOS product-journey gate. The
+  # observability contract remains mandatory; this overlay does not claim an
+  # OTel/Loki data-plane smoke or any SLO evidence.
+  loki:
+    profiles: [linux-observability]
+
+  otel-collector:
+    profiles: [linux-observability]
+
+  grafana:
+    depends_on:
+      prometheus: {condition: service_started}
+      tempo: {condition: service_started}
+      loki: {condition: service_started, required: false}
+
+  postgres:
+    environment:
+      LITES_SERVICE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - ../../deploy/migrations:/lites-migrations:ro
+      - ./postgres-init-local.sh:/docker-entrypoint-initdb.d/999_local.sh:ro
+    # pg_isready succeeds against the temporary server used by the official
+    # image while init scripts are still running. Gate dependencies on the
+    # marker written only after migrations, roles, and local seed data finish.
+    healthcheck:
+      test: [CMD-SHELL, "test -f /tmp/lites-local-init-complete && pg_isready -U postgres -d lites"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+
+  minio:
+    environment:
+      MINIO_KMS_SECRET_KEY_FILE: /run/lites-local/minio-kms-secret-key
+    volumes: *artifact-volume
+
+  # The foundation network is internal and this engineering overlay runs only
+  # fixture processes. NATS authentication remains a production-contract gate;
+  # this local broker deliberately has no externally reachable listener.
+  nats:
+    command: [--jetstream, --store_dir=/data, --http_port=8222]
+
+  probe:
+    volumes: *artifact-volume
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-05-21T01-59-54Z-cpuv1@sha256:41a3204156cfbf8d7b5ecbe08265a731acacb143eed7e401f431121df63dc630
+    restart: "no"
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing local/lites-payloads
+        mc mb --ignore-existing local/lites-imports
+        mc mb --ignore-existing local/lites-artifacts
+        mc version enable local/lites-artifacts
+    environment:
+      MC_CONFIG_DIR: /tmp/.mc
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    depends_on:
+      minio: {condition: service_healthy}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  vault-init:
+    image: hashicorp/vault:1.21.4@sha256:4e33b126a59c0c333b76fb4e894722462659a6bec7c48c9ee8cea56fccfd2569
+    restart: "no"
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        vault kv put -mount=secret lites/providers/local-model-adapter api_key="$${MODEL_ADAPTER_TOKEN}"
+    environment:
+      HOME: /tmp
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:?VAULT_DEV_ROOT_TOKEN is required}
+      MODEL_ADAPTER_TOKEN: ${MODEL_ADAPTER_TOKEN:?MODEL_ADAPTER_TOKEN is required}
+    depends_on:
+      vault: {condition: service_healthy}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  store-epoch-authority:
+    image: lites-macos-gate/store-epoch-authority:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: store-epoch-authority}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      LISTEN_ADDRESS: :8443
+      STORE_EPOCH_FILE: /run/lites-local/store-epoch
+      STORE_EPOCH_BEARER_TOKEN_FILE: /run/lites-local/epoch-token
+      SERVER_TLS_CERT_FILE: /run/lites-local/store-epoch-authority.pem
+      SERVER_TLS_KEY_FILE: /run/lites-local/store-epoch-authority-key.pem
+      SERVER_CLIENT_CA_FILE: /run/lites-local/local-ca.pem
+    volumes: *artifact-volume
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  local-model-adapter:
+    image: lites-macos-gate/local-model-adapter:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: lites-local-model-adapter}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      MODEL_ADAPTER_ADDRESS: :443
+      MODEL_ADAPTER_TLS_CERT_FILE: /run/lites-local/local-model-adapter.pem
+      MODEL_ADAPTER_TLS_KEY_FILE: /run/lites-local/local-model-adapter-key.pem
+      MODEL_ADAPTER_BEARER_TOKEN_FILE: /run/lites-local/model-adapter-token
+      MODEL_ADAPTER_MODEL: lites-macos-fixture-v1
+    volumes: *artifact-volume
+    networks:
+      foundation:
+        aliases: [model-adapter.lites.test, password-range.lites.test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  local-mailbox:
+    image: lites-macos-gate/local-mailbox:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: lites-local-mailbox}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      SERVER_TLS_CERT_FILE: /run/lites-local/local-mailbox.pem
+      SERVER_TLS_KEY_FILE: /run/lites-local/local-mailbox-key.pem
+      REMINDER_BEARER_TOKEN_FILE: /run/lites-local/reminder-token
+    volumes: *artifact-volume
+    # Keep service-to-service traffic on the internal foundation network while
+    # allowing the host-only Playwright mailbox API to be published by Docker
+    # Desktop through a separate bridge.
+    networks: [foundation, local-edge]
+    ports:
+      - 127.0.0.1:8025:8025
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  macos-test-adapter:
+    image: lites-macos-gate/macos-test-adapter:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: lites-macos-test-adapter}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: ""
+      DATABASE_URL: ${POSTGRES_ADMIN_DATABASE_URL:?POSTGRES_ADMIN_DATABASE_URL is required}
+      STORE_EPOCH: 60000000-0000-4000-8000-000000000001
+      IDENTITY_PUBLIC_TENANT_ID: 20000000-0000-4000-8000-000000000001
+      ROUTE_BEHAVIOR_ENVIRONMENT: production
+      HEALTH_ADDRESS: :8099
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  identity-service:
+    image: lites-macos-gate/identity-service:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: identity-service}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-identity
+      LISTEN_ADDRESS: :8443
+      SERVER_TLS_CERT_FILE: /run/lites-local/identity-service.pem
+      SERVER_TLS_KEY_FILE: /run/lites-local/identity-service-key.pem
+      SERVER_CLIENT_CA_FILE: /run/lites-local/local-ca.pem
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/lites-local/trusted-context-keyring.json
+      IDENTITY_SECRET_BUNDLE_FILE: /run/lites-local/identity-bundle.json
+      IDENTITY_PUBLIC_TENANT_ID: 20000000-0000-4000-8000-000000000001
+      ANONYMOUS_HANDLE_KEY_ID: local-anonymous-1
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      PASSWORD_RANGE_URL: https://password-range.lites.test/range
+      PASSWORD_RANGE_ALLOWED_HOSTS: password-range.lites.test
+      PASSWORD_RANGE_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      VALKEY_ADDRESSES: valkey:6379
+      VALKEY_PASSWORD_FILE: /run/lites-local/valkey-password
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN_FILE: /run/lites-local/vault-token
+      S3_REGION: local
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_PAYLOAD_BUCKET: lites-payloads
+      S3_IMPORT_BUCKET: lites-imports
+    volumes: *artifact-volume
+    depends_on:
+      postgres: {condition: service_healthy}
+      valkey: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+      vault-init: {condition: service_completed_successfully}
+      store-epoch-authority: {condition: service_started}
+      local-model-adapter: {condition: service_started}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  product-service:
+    image: lites-macos-gate/product-service:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: product-service}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-product
+      LISTEN_ADDRESS: :8443
+      SERVER_TLS_CERT_FILE: /run/lites-local/product-service.pem
+      SERVER_TLS_KEY_FILE: /run/lites-local/product-service-key.pem
+      SERVER_CLIENT_CA_FILE: /run/lites-local/local-ca.pem
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/lites-local/trusted-context-keyring.json
+      PRODUCT_SECRET_BUNDLE_FILE: /run/lites-local/product-bundle.json
+      IDENTITY_PUBLIC_TENANT_ID: 20000000-0000-4000-8000-000000000001
+      PUBLIC_STATUS_DOCUMENT_FILE: /run/lites-local/public-status.json
+      PUBLIC_STATUS_KEYRING_FILE: /run/lites-local/public-status-keyring.json
+      ROUTE_BEHAVIOR_ENVIRONMENT: production
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN_FILE: /run/lites-local/vault-token
+      S3_REGION: local
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_PAYLOAD_BUCKET: lites-payloads
+      S3_ARTIFACT_BUCKET: lites-artifacts
+    volumes: *artifact-volume
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+      vault-init: {condition: service_completed_successfully}
+      store-epoch-authority: {condition: service_started}
+      macos-test-adapter: {condition: service_started}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  agent-control-plane:
+    image: lites-macos-gate/agent-control-plane:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: agent-control-plane}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-agent
+      LISTEN_ADDRESS: :8443
+      SERVER_TLS_CERT_FILE: /run/lites-local/agent-control-plane.pem
+      SERVER_TLS_KEY_FILE: /run/lites-local/agent-control-plane-key.pem
+      SERVER_CLIENT_CA_FILE: /run/lites-local/local-ca.pem
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/lites-local/trusted-context-keyring.json
+      AGENT_CONTROL_SECRET_BUNDLE_FILE: /run/lites-local/agent-control-bundle.json
+      CONTROL_BEHAVIOR_ENVIRONMENT: production
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN_FILE: /run/lites-local/vault-token
+      S3_REGION: local
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_PAYLOAD_BUCKET: lites-payloads
+    volumes: *artifact-volume
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+      vault-init: {condition: service_completed_successfully}
+      store-epoch-authority: {condition: service_started}
+      macos-test-adapter: {condition: service_started}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  behavior-control-plane:
+    image: lites-macos-gate/behavior-control-plane:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: behavior-control-plane}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-behavior
+      ADMIN_LISTEN_ADDRESS: :8443
+      ROLLBACK_LISTEN_ADDRESS: :8444
+      SERVER_TLS_CERT_FILE: /run/lites-local/behavior-control-plane.pem
+      SERVER_TLS_KEY_FILE: /run/lites-local/behavior-control-plane-key.pem
+      SERVER_CLIENT_CA_FILE: /run/lites-local/local-ca.pem
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/lites-local/trusted-context-keyring.json
+      BEHAVIOR_SIGNING_KEYRING_FILE: /run/lites-local/behavior-signing-keyring.json
+      BEHAVIOR_SECRET_BUNDLE_FILE: /run/lites-local/behavior-bundle.json
+      BEHAVIOR_AUTOMATION_USER_ID: 20000000-0000-4000-8000-000000000003
+      ROLLBACK_ALLOWED_CLIENT_SPIFFE_ID: spiffe://lites.internal/behavior-rollback-controller
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN_FILE: /run/lites-local/vault-token
+      S3_REGION: local
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_PAYLOAD_BUCKET: lites-payloads
+    volumes: *artifact-volume
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+      vault-init: {condition: service_completed_successfully}
+      store-epoch-authority: {condition: service_started}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  contract-service:
+    image: lites-macos-gate/contract-service:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: contract-service}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-contract
+      LISTEN_ADDRESS: :8443
+      SERVER_TLS_CERT_FILE: /run/lites-local/contract-service.pem
+      SERVER_TLS_KEY_FILE: /run/lites-local/contract-service-key.pem
+      SERVER_CLIENT_CA_FILE: /run/lites-local/local-ca.pem
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/lites-local/trusted-context-keyring.json
+      CONTRACT_SECRET_BUNDLE_FILE: /run/lites-local/contract-bundle.json
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN_FILE: /run/lites-local/vault-token
+      S3_REGION: local
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_PAYLOAD_BUCKET: lites-payloads
+    volumes: *artifact-volume
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+      vault-init: {condition: service_completed_successfully}
+      store-epoch-authority: {condition: service_started}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  realtime-gateway:
+    image: lites-macos-gate/realtime-gateway:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: realtime-gateway}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-agent
+      LISTEN_ADDRESS: :8443
+      SERVER_TLS_CERT_FILE: /run/lites-local/realtime-gateway.pem
+      SERVER_TLS_KEY_FILE: /run/lites-local/realtime-gateway-key.pem
+      SERVER_CLIENT_CA_FILE: /run/lites-local/local-ca.pem
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/lites-local/trusted-context-keyring.json
+      NATS_URLS: nats://nats:4222
+      REALTIME_HEARTBEAT: 5s
+      REALTIME_CATCH_UP_INTERVAL: 1s
+    volumes: *artifact-volume
+    depends_on:
+      postgres: {condition: service_healthy}
+      nats: {condition: service_healthy}
+      outbox-publisher: {condition: service_started}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  api-gateway:
+    image: lites-macos-gate/api-gateway:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: api-gateway}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-identity
+      LISTEN_ADDRESS: :8443
+      SERVER_TLS_CERT_FILE: /run/lites-local/api-gateway.pem
+      SERVER_TLS_KEY_FILE: /run/lites-local/api-gateway-key.pem
+      GATEWAY_SECRET_BUNDLE_FILE: /run/lites-local/gateway-bundle.json
+      TRUSTED_CONTEXT_KEYRING_FILE: /run/lites-local/trusted-context-keyring.json
+      PUBLIC_ORIGINS: http://127.0.0.1:3118
+      # Next's internal rewrite is not an authenticated edge proxy and may
+      # append a forwarding chain. Keep Docker peers untrusted so the Gateway
+      # strips those headers; the documentation-only range matches no local
+      # container and satisfies the non-empty production-style config shape.
+      TRUSTED_PROXY_CIDRS: 192.0.2.0/24
+      IDENTITY_UPSTREAM_URL: https://identity-service:8443
+      IDENTITY_UPSTREAM_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      IDENTITY_UPSTREAM_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      IDENTITY_UPSTREAM_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      IDENTITY_UPSTREAM_TLS_SERVER_NAME: identity-service
+      PRODUCT_UPSTREAM_URL: https://product-service:8443
+      PRODUCT_UPSTREAM_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      PRODUCT_UPSTREAM_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      PRODUCT_UPSTREAM_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      PRODUCT_UPSTREAM_TLS_SERVER_NAME: product-service
+      REALTIME_UPSTREAM_URL: https://realtime-gateway:8443
+      REALTIME_UPSTREAM_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      REALTIME_UPSTREAM_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      REALTIME_UPSTREAM_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      REALTIME_UPSTREAM_TLS_SERVER_NAME: realtime-gateway
+      BEHAVIOR_UPSTREAM_URL: https://behavior-control-plane:8443
+      BEHAVIOR_UPSTREAM_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      BEHAVIOR_UPSTREAM_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      BEHAVIOR_UPSTREAM_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      BEHAVIOR_UPSTREAM_TLS_SERVER_NAME: behavior-control-plane
+      AGENT_UPSTREAM_URL: https://agent-control-plane:8443
+      AGENT_UPSTREAM_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      AGENT_UPSTREAM_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      AGENT_UPSTREAM_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      AGENT_UPSTREAM_TLS_SERVER_NAME: agent-control-plane
+      CONTRACT_UPSTREAM_URL: https://contract-service:8443
+      CONTRACT_UPSTREAM_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      CONTRACT_UPSTREAM_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      CONTRACT_UPSTREAM_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      CONTRACT_UPSTREAM_TLS_SERVER_NAME: contract-service
+    volumes: *artifact-volume
+    depends_on:
+      postgres: {condition: service_healthy}
+      identity-service: {condition: service_started}
+      realtime-gateway: {condition: service_started}
+      product-service: {condition: service_started}
+      agent-control-plane: {condition: service_started}
+      behavior-control-plane: {condition: service_started}
+      contract-service: {condition: service_started}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  outbox-publisher:
+    image: lites-macos-gate/outbox-publisher:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: outbox-publisher}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-agent
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      NATS_URLS: nats://nats:4222
+      NATS_STREAM_REPLICAS: "1"
+      # The production default is 100 GiB. Docker Desktop's local JetStream
+      # store is intentionally smaller, so the engineering overlay owns a
+      # bounded stream without weakening the production configuration.
+      NATS_STREAM_MAX_BYTES: "1073741824"
+      OUTBOX_LEASE_PEPPER_FILE: /run/lites-local/outbox-lease-pepper
+    volumes: *artifact-volume
+    depends_on:
+      postgres: {condition: service_healthy}
+      nats: {condition: service_healthy}
+      store-epoch-authority: {condition: service_started}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  identity-import-worker:
+    image: lites-macos-gate/identity-import-worker:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: identity-import-worker}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-identity
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      NATS_URLS: nats://nats:4222
+      NATS_STREAM_REPLICAS: "1"
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN_FILE: /run/lites-local/vault-token
+      S3_REGION: local
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_PAYLOAD_BUCKET: lites-payloads
+      S3_IMPORT_BUCKET: lites-imports
+      IDENTITY_INBOX_LEASE_PEPPER_FILE: /run/lites-local/identity-inbox-pepper
+      IDENTITY_INVITATION_TOKEN_PEPPER_FILE: /run/lites-local/invitation-pepper
+      CLAIM_IDENTITY_KEY_FILE: /run/lites-local/claim-identity-key
+      IDENTITY_PUBLIC_TENANT_ID: 20000000-0000-4000-8000-000000000001
+    volumes: *artifact-volume
+    depends_on:
+      outbox-publisher: {condition: service_started}
+      minio-init: {condition: service_completed_successfully}
+      vault-init: {condition: service_completed_successfully}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  identity-mail-worker:
+    image: lites-macos-gate/identity-mail-worker:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: identity-mail-worker}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-identity
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      NATS_URLS: nats://nats:4222
+      NATS_STREAM_REPLICAS: "1"
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN_FILE: /run/lites-local/vault-token
+      S3_REGION: local
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_PAYLOAD_BUCKET: lites-payloads
+      IDENTITY_INBOX_LEASE_PEPPER_FILE: /run/lites-local/identity-inbox-pepper
+      PUBLIC_APP_URL: http://127.0.0.1:3118
+      SMTP_ADDRESS: local-mailbox:1025
+      SMTP_SERVER_NAME: local-mailbox
+      SMTP_FROM_ADDRESS: no-reply@lites.local
+      SMTP_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+    volumes: *artifact-volume
+    depends_on:
+      outbox-publisher: {condition: service_started}
+      local-mailbox: {condition: service_started}
+      minio-init: {condition: service_completed_successfully}
+      vault-init: {condition: service_completed_successfully}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  product-worker:
+    image: lites-macos-gate/product-worker:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: product-worker}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-product
+      PRODUCT_SECRET_BUNDLE_FILE: /run/lites-local/product-bundle.json
+      PRODUCT_INBOX_LEASE_PEPPER_FILE: /run/lites-local/product-inbox-pepper
+      ROUTE_BEHAVIOR_ENVIRONMENT: production
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      NATS_URLS: nats://nats:4222
+      NATS_STREAM_REPLICAS: "1"
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN_FILE: /run/lites-local/vault-token
+      S3_REGION: local
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_PAYLOAD_BUCKET: lites-payloads
+      REMINDER_DELIVERY_URL: https://local-mailbox:8443/v1/internal/reminder-deliveries
+      REMINDER_DELIVERY_READINESS_URL: https://local-mailbox:8443/ready
+      REMINDER_DELIVERY_TOKEN_FILE: /run/lites-local/reminder-token
+      REMINDER_DELIVERY_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      REMINDER_DELIVERY_TLS_SERVER_NAME: local-mailbox
+    volumes: *artifact-volume
+    depends_on:
+      outbox-publisher: {condition: service_started}
+      local-mailbox: {condition: service_started}
+      macos-test-adapter: {condition: service_started}
+      minio-init: {condition: service_completed_successfully}
+      vault-init: {condition: service_completed_successfully}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  agent-scheduler:
+    image: lites-macos-gate/agent-scheduler:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: agent-scheduler}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-scheduler
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      NATS_URLS: nats://nats:4222
+      NATS_STREAM_REPLICAS: "1"
+      NATS_STREAM_MAX_BYTES: "1073741824"
+      SCHEDULER_CONFIG_FILE: /run/lites-local/scheduler-config.json
+      SCHEDULER_RESOURCE_PEPPER_FILE: /run/lites-local/scheduler-resource-pepper
+      SCHEDULER_DISPATCH_PEPPER_FILE: /run/lites-local/scheduler-dispatch-pepper
+      SCHEDULER_OWNER: macos-engineering-scheduler
+    volumes: *artifact-volume
+    depends_on:
+      outbox-publisher: {condition: service_started}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  agent-worker:
+    image: lites-macos-gate/agent-worker:engineering
+    build:
+      <<: *go-service
+      args: {SERVICE: agent-worker}
+    restart: on-failure
+    environment:
+      <<: *local-environment
+      DATABASE_URL_FILE: /run/lites-local/database-url-agent
+      STORE_EPOCH_URL: https://store-epoch-authority:8443/v1/store-epoch
+      STORE_EPOCH_TOKEN_FILE: /run/lites-local/epoch-token
+      STORE_EPOCH_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      STORE_EPOCH_CLIENT_CERT_FILE: /run/lites-local/local-service-client.pem
+      STORE_EPOCH_CLIENT_KEY_FILE: /run/lites-local/local-service-client-key.pem
+      STORE_EPOCH_TLS_SERVER_NAME: store-epoch-authority
+      NATS_URLS: nats://nats:4222
+      NATS_STREAM_REPLICAS: "1"
+      AGENT_WORKER_ID: macos-engineering-agent-worker
+      AGENT_WORKER_CONCURRENCY: "4"
+      NATS_MAX_ACK_PENDING: "8"
+      PROMPT_ARTIFACT_FILE: /run/lites-local/prompts.json
+      PROMPT_ARTIFACT_HASH: ${PROMPT_ARTIFACT_HASH:?PROMPT_ARTIFACT_HASH is required}
+      MODEL_ROUTE_ARTIFACT_FILE: /run/lites-local/routes.json
+      MODEL_ROUTE_ARTIFACT_HASH: ${MODEL_ROUTE_ARTIFACT_HASH:?MODEL_ROUTE_ARTIFACT_HASH is required}
+      TOOL_REGISTRY_ARTIFACT_FILE: /run/lites-local/tools.json
+      TOOL_REGISTRY_ARTIFACT_HASH: ${TOOL_REGISTRY_ARTIFACT_HASH:?TOOL_REGISTRY_ARTIFACT_HASH is required}
+      PROVIDER_REGISTRY_FILE: /run/lites-local/providers.json
+      PROVIDER_REGISTRY_FILE_HASH: ${PROVIDER_REGISTRY_FILE_HASH:?PROVIDER_REGISTRY_FILE_HASH is required}
+      PROVIDER_ROOT_CA_FILE: /run/lites-local/local-ca.pem
+      PRIVATE_ENGINEERING_PROVIDER_HOST: model-adapter.lites.test
+      EXECUTION_ID_KEY_FILE: /run/lites-local/execution-id-key
+      EXECUTION_LEASE_PEPPER_FILE: /run/lites-local/execution-lease-pepper
+      LLM_ID_KEY_FILE: /run/lites-local/llm-id-key
+      LLM_TOKEN_PEPPER_FILE: /run/lites-local/llm-token-pepper
+      BILLING_ID_KEY_FILE: /run/lites-local/billing-id-key
+      AGENT_ID_KEY_FILE: /run/lites-local/agent-id-key
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN_FILE: /run/lites-local/vault-token
+      S3_REGION: local
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_PAYLOAD_BUCKET: lites-payloads
+    volumes: *artifact-volume
+    depends_on:
+      agent-scheduler: {condition: service_started}
+      local-model-adapter: {condition: service_started}
+      vault-init: {condition: service_completed_successfully}
+      minio-init: {condition: service_completed_successfully}
+    networks: [foundation]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  web:
+    image: lites-macos-gate/web:engineering
+    build:
+      context: ../..
+      dockerfile: Dockerfile.web
+      args:
+        LITES_API_ORIGIN: https://api-gateway:8443
+    restart: on-failure
+    environment:
+      NODE_EXTRA_CA_CERTS: /run/lites-local/local-ca.pem
+    volumes: *artifact-volume
+    depends_on:
+      api-gateway: {condition: service_started}
+      identity-mail-worker: {condition: service_started}
+      product-worker: {condition: service_started}
+      agent-worker: {condition: service_started}
+    networks: [foundation, local-edge]
+    ports:
+      - 127.0.0.1:3118:3000
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  local-edge:
+    driver: bridge

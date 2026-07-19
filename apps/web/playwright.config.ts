@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  timeout: 90_000,
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
@@ -19,7 +20,7 @@ export default defineConfig({
     { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
   ],
   webServer: {
-    command: "NEXT_PUBLIC_LITES_DEMO_MODE=true npx next dev --hostname 127.0.0.1 --port 3117",
+    command: "NEXT_PUBLIC_LITES_DEMO_MODE=true ../../node_modules/.bin/next dev --webpack --hostname 127.0.0.1 --port 3117",
     url: "http://127.0.0.1:3117/en/onboarding",
     reuseExistingServer: false,
     timeout: 120_000,

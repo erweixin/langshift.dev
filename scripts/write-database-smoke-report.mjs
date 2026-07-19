@@ -19,6 +19,6 @@ const report={
   criticalConstraints:["anonymous claim_key uniqueness","session active tenant binding","session CAS version","session active tenant foreign key","idempotency response scope uniqueness","event aggregate version uniqueness","Mission Focus tenant-user primary key","Route claim_set_hash","Route base_route_version","reminder delivery dedupe","effect ledger uniqueness","distinct repair approver vote","credit conservation check"],
   promotionRule:"Repeat on the immutable contract snapshot commit before stage approval."
 };
-const path=resolve(root,"gate-reports/stage-1/database-smoke.json");
+const path=resolve(root,process.env.DATABASE_SMOKE_REPORT??"gate-reports/stage-1/database-smoke.json");
 await mkdir(dirname(path),{recursive:true});
 await writeFile(path,`${JSON.stringify(report,null,2)}\n`);

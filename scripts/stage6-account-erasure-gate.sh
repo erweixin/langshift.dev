@@ -6,8 +6,15 @@ source_commit="${1:-}"
 rc_hash="${2:-}"
 [[ "${source_commit}" =~ ^[0-9a-f]{40}$ ]] || { echo "source commit is required" >&2; exit 2; }
 [[ "${rc_hash}" =~ ^[0-9a-f]{64}$ ]] || { echo "release candidate hash is required" >&2; exit 2; }
-[[ -z "$(git -C "${root}" status --porcelain=v1)" ]] || { echo "source worktree must be clean" >&2; exit 2; }
+worktree_dirty=false
+if [[ -n "$(git -C "${root}" status --porcelain=v1)" ]]; then
+  worktree_dirty=true
+  [[ "${LITES_ACCOUNT_ERASURE_ALLOW_DIRTY:-false}" == "true" ]] || { echo "source worktree must be clean" >&2; exit 2; }
+fi
 [[ "$(git -C "${root}" rev-parse HEAD)" == "${source_commit}" ]] || { echo "source commit does not match HEAD" >&2; exit 2; }
+
+account_erasure_report="${LITES_ACCOUNT_ERASURE_REPORT:-gate-reports/stage-6/account-erasure-100.json}"
+[[ "${account_erasure_report}" == /* ]] || account_erasure_report="${root}/${account_erasure_report}"
 
 suffix="$$-${RANDOM}"
 minio_name="lites-erasure-minio-${suffix}"
@@ -25,6 +32,9 @@ mkdir -p "${runtime}" "${root}/.tmp/go-cache-stage6" "${root}/.tmp/go-tmp-stage6
 cleanup() {
   docker rm -f "${minio_name}" "${vault_name}" "${valkey_name}" >/dev/null 2>&1 || true
   rm -rf "${runtime}"
+  if [[ "${LITES_KEEP_GATE_CACHES:-false}" != "true" ]]; then
+    rm -rf "${root}/.tmp/go-cache-stage6" "${root}/.tmp/go-tmp-stage6"
+  fi
 }
 trap cleanup EXIT
 
@@ -80,7 +90,6 @@ node "${root}/scripts/write-stage6-account-erasure-report.mjs" \
   --dependency-test-json .tmp/account-erasure-dependencies.json \
   --s3-runtime "${minio_image}" --vault-runtime "${vault_image}" --valkey-runtime "${valkey_image}"
 
-jq -e --arg commit "${source_commit}" --arg rc "${rc_hash}" \
-  '.status=="passed" and .sourceCommit==$commit and .rcHash==$rc and .worktreeDirty==false and .accounts==100 and .totalSurfaceReceiptRowsAfterRestore==1200 and (.dependencyGate.tests|length)==3' \
-  "${root}/gate-reports/stage-6/account-erasure-100.json" >/dev/null
-printf 'stage-6 account erasure gate: accounts=100 receipts=1200 dependencies=3 status=passed\n'
+node "${root}/scripts/verify-stage6-account-erasure-report.mjs" \
+  --report "${account_erasure_report}" --source-commit "${source_commit}" --rc-hash "${rc_hash}" --dirty "${worktree_dirty}"
+printf 'stage-6 account erasure gate: accounts=100 receipts=1200 dependencies=3 execution=passed evidence=%s\n' "$([[ "${worktree_dirty}" == "true" ]] && printf failed || printf passed)"

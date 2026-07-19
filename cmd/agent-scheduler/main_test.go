@@ -38,3 +38,9 @@ func TestLoadPolicyRejectsUnknownAndTrailingFields(t *testing.T) {
 		}
 	}
 }
+
+func TestEpochClientRejectsUnreadableClientCertificate(t *testing.T) {
+	if _, err := tlsHTTPClient("", "/missing/client.pem", "/missing/client-key.pem", true); err == nil {
+		t.Fatal("unreadable epoch mTLS identity was accepted")
+	}
+}

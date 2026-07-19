@@ -17,3 +17,12 @@ func TestClientConfigurationRejectsCredentialURLsAndRemotePlaintext(t *testing.T
 		}
 	}
 }
+
+func TestClientConfigurationAllowsOnlyExplicitLocalComposeMinIO(t *testing.T) {
+	if _, err := NewClient(t.Context(), ClientConfig{Region: "us-east-1", Endpoint: "http://minio:9000", UsePathStyle: true, AllowInsecureDevelopment: true, AllowLocalCompose: true}); err != nil {
+		t.Fatalf("local Compose MinIO rejected: %v", err)
+	}
+	if _, err := NewClient(t.Context(), ClientConfig{Region: "us-east-1", Endpoint: "http://other:9000", UsePathStyle: true, AllowInsecureDevelopment: true, AllowLocalCompose: true}); !errors.Is(err, ErrConfiguration) {
+		t.Fatalf("arbitrary local Compose HTTP endpoint error=%v", err)
+	}
+}

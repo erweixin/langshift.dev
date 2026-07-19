@@ -3,7 +3,7 @@ set -euo pipefail
 
 cycles="${MIGRATION_SMOKE_CYCLES:-3}"
 [[ "${cycles}" =~ ^[0-9]+$ && "${cycles}" -ge 3 ]] || { echo "MIGRATION_SMOKE_CYCLES must be at least 3" >&2; exit 2; }
-latest_version="$(jq -er '.migrations[-1].version' deploy/migrations/manifest.json)"
+latest_version="$(node -e 'const m=require("./deploy/migrations/manifest.json"); process.stdout.write(String(m.migrations.at(-1).version))')"
 latest_verify="deploy/migrations/$(printf '900%03d_verify_current.sql' "${latest_version}")"
 [[ "${latest_version}" =~ ^[0-9]+$ && -f "${latest_verify}" ]] || { echo "migration manifest latest verification is invalid" >&2; exit 2; }
 
@@ -20,6 +20,23 @@ trap cleanup EXIT
 mkdir -p "${go_cache}" "${go_mod_cache}" "${go_tmp}"
 
 GOCACHE="${go_cache}" GOMODCACHE="${go_mod_cache}" GOTMPDIR="${go_tmp}" go build -trimpath -o "${work}/lites-migrate" ./cmd/lites-migrate
+
+run_initial_migration() {
+  local database_url="$1"
+  local connection_error="${work}/initial-migration.err"
+  for _ in $(seq 1 30); do
+    if ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up 2>"${connection_error}"; then
+      return 0
+    fi
+    if [[ "$(tr -d '\r\n' < "${connection_error}")" != "database connection failed" ]]; then
+      sed -n '1,20p' "${connection_error}" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  sed -n '1,20p' "${connection_error}" >&2
+  return 1
+}
 
 expected_data=""
 postgres_version=""
@@ -46,7 +63,7 @@ for cycle in $(seq 1 "${cycles}"); do
     sleep 1
   done
   [[ "${host_ready}" == "true" ]] || { docker logs "${current_container}"; echo "database host port did not become ready" >&2; exit 1; }
-  ALLOW_INSECURE_DEVELOPMENT=true DATABASE_URL="${database_url}" "${work}/lites-migrate" -direction up >/dev/null
+  run_initial_migration "${database_url}" >/dev/null
   docker cp "${latest_verify}" "${current_container}:/tmp/verify.sql" >/dev/null
   verify_output="$(docker exec "${current_container}" psql -v ON_ERROR_STOP=1 -U postgres -d lites -Atf /tmp/verify.sql)"
   [[ "${verify_output}" == *'"status" : "passed"'* ]] || { printf '%s\n' "${verify_output}"; exit 1; }

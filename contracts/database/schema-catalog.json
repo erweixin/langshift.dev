@@ -20,6 +20,8 @@
         "normalized_email text NOT NULL",
         "email_verified_at timestamptz",
         "locale text NOT NULL DEFAULT 'en'",
+        "timezone text NOT NULL DEFAULT 'UTC'",
+        "display_name text",
         "status text NOT NULL",
         "deletion_requested_at timestamptz"
       ],
@@ -33,7 +35,11 @@
         ]
       ],
       "foreignKeys": [],
-      "checks": [],
+      "checks": [
+        "locale IN ('en','zh-CN')",
+        "char_length(timezone) BETWEEN 1 AND 128",
+        "display_name IS NULL OR char_length(display_name) BETWEEN 1 AND 200"
+      ],
       "qualifiedName": "identity.users",
       "rls": "identity_service_role_only"
     },
@@ -1976,6 +1982,7 @@
         "bound_host text NOT NULL",
         "secret_ref text NOT NULL",
         "secret_version text NOT NULL",
+        "secret_hint text NOT NULL DEFAULT '••••'",
         "status text NOT NULL",
         "last_validated_at timestamptz"
       ],
@@ -2002,12 +2009,13 @@
       "columns": [
         "tenant_id uuid NOT NULL",
         "user_id uuid NOT NULL",
-        "version bigint NOT NULL DEFAULT 1",
+        "version bigint NOT NULL DEFAULT 1 CHECK (version > 0)",
         "enabled boolean NOT NULL",
         "retention_days integer",
         "allowed_kinds jsonb NOT NULL",
         "updated_at timestamptz NOT NULL",
-        "PRIMARY KEY (tenant_id,user_id)"
+        "PRIMARY KEY (tenant_id,user_id)",
+        "CHECK ((enabled AND retention_days BETWEEN 1 AND 3650 AND jsonb_typeof(allowed_kinds)='array' AND jsonb_array_length(allowed_kinds) BETWEEN 1 AND 4) OR (NOT enabled AND retention_days IS NULL AND allowed_kinds='[]'::jsonb))"
       ],
       "tenantScoped": true,
       "userScoped": true,
@@ -2017,6 +2025,29 @@
       "foreignKeys": [],
       "checks": [],
       "qualifiedName": "product.memory_policies",
+      "rls": "tenant_context_required"
+    },
+    {
+      "schema": "product",
+      "name": "settings_access_audit",
+      "columns": [
+        "id uuid PRIMARY KEY",
+        "tenant_id uuid NOT NULL",
+        "user_id uuid NOT NULL",
+        "session_id uuid NOT NULL",
+        "action text NOT NULL CHECK (action IN ('byok_listed','byok_configured','byok_deleted','memory_policy_read','memory_policy_updated'))",
+        "resource_id uuid",
+        "request_id text NOT NULL CHECK (char_length(request_id) BETWEEN 1 AND 200)",
+        "occurred_at timestamptz NOT NULL"
+      ],
+      "tenantScoped": true,
+      "userScoped": true,
+      "dataClass": "confidential",
+      "appendOnly": true,
+      "uniques": [],
+      "foreignKeys": [],
+      "checks": [],
+      "qualifiedName": "product.settings_access_audit",
       "rls": "tenant_context_required"
     },
     {

@@ -54,6 +54,8 @@ const delivery = {
   },
 };
 await writeJSON(join(repository, "deploy/private-delivery/manifest.json"), delivery);
+await mkdir(join(repository, "deploy/migrations"), { recursive: true });
+await copyFile(resolve(root, "deploy/migrations/manifest.json"), join(repository, "deploy/migrations/manifest.json"));
 await writeJSON(join(repository, "contracts/release/stage6-approver-keyring.json"), { keyringVersion: "1.0.0", status: "unassigned", requiredRoles: { pilot: ["product", "research", "security", "privacy", "qa"], final: ["product", "engineering", "security", "operations", "release"] }, keys: [] });
 await copyFile(resolve(root, "contracts/release/stage6-evidence-layout.json"), join(repository, "contracts/release/stage6-evidence-layout.json"));
 await writeJSON(join(repository, "config/legal-governance.json"), { policyVersion: "1.0.0", status: "active", projectName: "Lites", repository: "https://github.com/erweixin/langshift.dev", rightsHolderLegalName: "Fixture Rights Holder Ltd.", rightsHolderAddress: "1 Fixture Road", governingLaw: "Fixture jurisdiction", claSubmissionAddress: "cla@fixture.invalid", claAcceptanceMethod: "signed_document", securityDisclosureChannel: "https://github.com/erweixin/langshift.dev/security/advisories/new", communityLicense: "AGPL-3.0-only", commercialLicensingEnabled: true });

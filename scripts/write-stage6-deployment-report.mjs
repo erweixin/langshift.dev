@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,8 @@ const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const hex64 = /^[0-9a-f]{64}$/;
 const hex40 = /^[0-9a-f]{40}$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const migrationManifest = JSON.parse(readFileSync(resolve(import.meta.dirname, "../deploy/migrations/manifest.json"), "utf8"));
+export const currentMigration = migrationManifest.migrations.at(-1).version;
 
 export function validateDeploymentRecords(records, { target, sourceCommit, rcHash }) {
   if (!targets.includes(target) || !hex40.test(sourceCommit) || !hex64.test(rcHash)) throw new Error("invalid deployment target, source commit, or RC hash");
@@ -31,11 +34,11 @@ export function validateDeploymentRecords(records, { target, sourceCommit, rcHas
       const completed = Date.parse(record.completedAt);
       if (!Number.isFinite(started) || !Number.isFinite(completed) || completed <= started) throw new Error(`${operation} timestamps are invalid`);
       const expectedSchema = {
-        freshInstall: [0, 84],
-        upgrade: [83, 84],
-        backup: [84, 84],
-        restore: [84, 84],
-        rollback: [84, 84],
+        freshInstall: [0, currentMigration],
+        upgrade: [currentMigration - 1, currentMigration],
+        backup: [currentMigration, currentMigration],
+        restore: [currentMigration, currentMigration],
+        rollback: [currentMigration, currentMigration],
       }[operation];
       if (record.schemaVersionBefore !== expectedSchema[0] || record.schemaVersionAfter !== expectedSchema[1]) throw new Error(`${operation} schema transition is invalid`);
       if (!uuid.test(record.storeEpochBefore) || !uuid.test(record.storeEpochAfter)) throw new Error(`${operation} Store Epoch is invalid`);
@@ -57,7 +60,7 @@ export function buildDeploymentReport(records, { target, sourceCommit, rcHash, e
       attempts: attempts.map((record) => ({ runId: record.runId, environmentFingerprint: record.environmentFingerprint, transcriptSha256: record.transcriptSha256, stateBeforeSha256: record.stateBeforeSha256, stateAfterSha256: record.stateAfterSha256, durationSeconds: record.durationSeconds, completedAt: record.completedAt })),
     }];
   }));
-  const base = { reportVersion: "1.0.0", stage: 6, kind: "deployment-drill", target, status: "passed", generatedAt, sourceCommit, worktreeDirty: false, rcHash, currentMigration: 84, requiredConsecutivePasses: 3, rawEvidence: { path: evidencePath, sha256: rawEvidenceSha256, records: records.length }, operations: operationResults };
+  const base = { reportVersion: "1.0.0", stage: 6, kind: "deployment-drill", target, status: "passed", generatedAt, sourceCommit, worktreeDirty: false, rcHash, currentMigration, requiredConsecutivePasses: 3, rawEvidence: { path: evidencePath, sha256: rawEvidenceSha256, records: records.length }, operations: operationResults };
   return { ...base, reportHash: sha256(JSON.stringify(base)) };
 }
 

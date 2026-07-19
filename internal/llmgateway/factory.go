@@ -4,6 +4,7 @@ package llmgateway
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"net/http"
 	"time"
@@ -19,6 +20,7 @@ type ClientFactory struct {
 	Secrets       egress.SecretSource
 	DialContext   egress.DialContext
 	BaseTransport http.RoundTripper
+	RootCAs       *x509.CertPool
 }
 
 func (factory ClientFactory) Build(ctx context.Context, resolved provider.ResolvedProvider, credential provider.ManagedCredential) (provider.Client, error) {
@@ -41,7 +43,7 @@ func (factory ClientFactory) Build(ctx context.Context, resolved provider.Resolv
 	return egress.NewBroker(ctx, egress.ClientConfig{
 		Endpoint: endpoint, Policy: factory.Policy, Secrets: factory.Secrets,
 		Credential:  egress.CredentialBinding{SecretRef: credential.SecretRef, SecretVersion: credential.SecretVersion, HeaderName: header, ValuePrefix: prefix},
-		DialContext: factory.DialContext, BaseTransport: factory.BaseTransport,
+		DialContext: factory.DialContext, BaseTransport: factory.BaseTransport, RootCAs: factory.RootCAs,
 		RequestTimeout: resolved.Provider.RequestTimeout, DialTimeout: 10 * time.Second,
 		TLSHandshake: 10 * time.Second, ResponseHeader: 90 * time.Second, IdleConnTimeout: 90 * time.Second,
 		MaximumRedirects: 0, MaximumBodyBytes: resolved.Provider.MaximumResponseBytes,

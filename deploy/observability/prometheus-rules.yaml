@@ -1,0 +1,70 @@
+groups:
+  - name: lites-sli-recording
+    interval: 30s
+    rules:
+      - record: lites:sli:http_requests:rate5m
+        expr: sum by (service_name) (rate(lites_http_server_requests_total[5m]))
+      - record: lites:sli:http_5xx_ratio:rate5m
+        expr: sum by (service_name) (rate(lites_http_server_requests_total{http_response_status_class="5xx"}[5m])) / clamp_min(sum by (service_name) (rate(lites_http_server_requests_total[5m])), 0.001)
+      - record: lites:sli:http_latency_seconds:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, le) (rate(lites_http_server_duration_seconds_bucket[5m])))
+      - record: lites:sli:http_latency_seconds:p99_5m
+        expr: histogram_quantile(0.99, sum by (service_name, le) (rate(lites_http_server_duration_seconds_bucket[5m])))
+      - record: lites:sli:event_append_seconds:p99_5m
+        expr: histogram_quantile(0.99, sum by (service_name, le) (rate(lites_event_append_duration_seconds_bucket[5m])))
+      - record: lites:sli:queue_wait_seconds:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, queue_class, le) (rate(lites_queue_wait_seconds_bucket[5m])))
+      - record: lites:sli:queue_wait_seconds:p99_5m
+        expr: histogram_quantile(0.99, sum by (service_name, queue_class, le) (rate(lites_queue_wait_seconds_bucket[5m])))
+      - record: lites:sli:first_safe_token_seconds:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, provider, le) (rate(lites_first_safe_token_seconds_bucket[5m])))
+      - record: lites:sli:runtime_cold_start_seconds:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, trust_tier, le) (rate(lites_runtime_cold_start_seconds_bucket[5m])))
+      - record: lites:sli:tool_outcome_unknown_ratio:rate1d
+        expr: sum(rate(lites_tool_calls_total{effectful="true",outcome="unknown"}[1d])) / clamp_min(sum(rate(lites_tool_calls_total{effectful="true"}[1d])), 0.000001)
+
+  - name: lites-engineering-alerts
+    interval: 30s
+    rules:
+      - alert: LitesInvariantViolation
+        expr: increase(lites_invariant_violations_total[5m]) > 0
+        for: 0m
+        labels: {severity: critical, owner: platform}
+        annotations:
+          summary: A zero-tolerance Lites invariant was violated
+          runbook_url: /runbooks/platform-reliability-incidents.md#zero-tolerance-invariant
+      - alert: LitesOutcomeUnknownNotConverged
+        expr: increase(lites_tool_unknown_total{converged_15m="false"}[15m]) > 0
+        for: 0m
+        labels: {severity: critical, owner: platform}
+        annotations:
+          summary: An effectful tool outcome did not converge within 15 minutes
+          runbook_url: /runbooks/platform-reliability-incidents.md#outcome-unknown
+      - alert: LitesEventAppendP99High
+        expr: lites:sli:event_append_seconds:p99_5m > 0.2
+        for: 10m
+        labels: {severity: warning, owner: platform}
+        annotations:
+          summary: Event append p99 is above the engineering target
+          runbook_url: /runbooks/platform-reliability-incidents.md#event-append-or-queue-latency
+      - alert: LitesInteractiveQueueP99High
+        expr: lites:sli:queue_wait_seconds:p99_5m{queue_class="interactive"} > 10
+        for: 10m
+        labels: {severity: warning, owner: platform}
+        annotations:
+          summary: Interactive queue p99 is above the engineering target
+          runbook_url: /runbooks/platform-reliability-incidents.md#event-append-or-queue-latency
+      - alert: LitesHTTP5xxRatioHigh
+        expr: lites:sli:http_5xx_ratio:rate5m > 0.02 and lites:sli:http_requests:rate5m > 0.1
+        for: 10m
+        labels: {severity: warning, owner: application}
+        annotations:
+          summary: HTTP 5xx ratio is above two percent
+          runbook_url: /runbooks/platform-reliability-incidents.md#http-errors
+      - alert: LitesTelemetryTargetMissing
+        expr: up{job="otel-collector"} == 0
+        for: 5m
+        labels: {severity: warning, owner: platform}
+        annotations:
+          summary: The local telemetry collector scrape target is unavailable
+          runbook_url: /runbooks/platform-reliability-incidents.md#telemetry-pipeline

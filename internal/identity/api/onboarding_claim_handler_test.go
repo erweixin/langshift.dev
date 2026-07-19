@@ -28,7 +28,7 @@ func (stub onboardingClaimStub) ClaimOnboarding(ctx context.Context, command Onb
 	return stub.claim(ctx, command)
 }
 
-func TestOnboardingClaimRequiresBoundAnonymousSubjectAndClearsIt(t *testing.T) {
+func TestOnboardingClaimRequiresBoundAnonymousSubjectAndPreservesAuthenticatedCSRF(t *testing.T) {
 	service := onboardingClaimStub{claim: func(_ context.Context, command OnboardingClaimCommand) (OnboardingClaimResult, error) {
 		if command.OnboardingSessionID != "onboarding-1" || command.AnonymousSubjectID != "anonymous-subject" || command.UserID != "user-auth" || command.TenantID != "tenant-auth" || command.ExpectedClaimVersion != 4 || command.ClientRequestID != "claim-request-001" {
 			t.Fatalf("command=%#v", command)
@@ -40,8 +40,11 @@ func TestOnboardingClaimRequiresBoundAnonymousSubjectAndClearsIt(t *testing.T) {
 		t.Fatalf("status=%d etag=%q body=%s", recorder.Code, recorder.Header().Get("ETag"), recorder.Body.String())
 	}
 	cookies := recorder.Result().Cookies()
-	if len(cookies) != 2 || cookies[0].Name != anonymoussession.CookieName || cookies[0].MaxAge != -1 || cookies[1].Name != anonymoussession.CSRFCookieName || cookies[1].MaxAge != -1 {
+	if len(cookies) != 1 || cookies[0].Name != anonymoussession.CookieName || cookies[0].MaxAge != -1 {
 		t.Fatalf("cookies=%#v", cookies)
+	}
+	if strings.Contains(strings.Join(recorder.Header().Values("Set-Cookie"), "\n"), anonymoussession.CSRFCookieName+"=") {
+		t.Fatal("claim response must not clear the authenticated CSRF cookie")
 	}
 }
 

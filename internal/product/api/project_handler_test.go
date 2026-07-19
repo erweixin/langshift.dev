@@ -4,12 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
 
 type projectServiceStub struct {
 	create    func(CreateProjectCommand) (ProjectMutationResult, error)
+	get       func(ProjectGetQuery) (ProjectDetailResource, error)
 	milestone func(TransitionMilestoneCommand) (MilestoneMutationResult, error)
 	workspace func(BindWorkspaceCommand) (WorkspaceMutationResult, error)
 }
@@ -24,6 +26,12 @@ func (stub projectTestServiceStub) Generate(_ context.Context, command GenerateP
 
 func (stub projectServiceStub) List(context.Context, ProjectListQuery) (ProjectListResult, error) {
 	return ProjectListResult{}, nil
+}
+func (stub projectServiceStub) Get(_ context.Context, query ProjectGetQuery) (ProjectDetailResource, error) {
+	if stub.get == nil {
+		return ProjectDetailResource{}, nil
+	}
+	return stub.get(query)
 }
 func (stub projectServiceStub) Create(_ context.Context, command CreateProjectCommand) (ProjectMutationResult, error) {
 	return stub.create(command)
@@ -65,6 +73,30 @@ func TestProjectCreateBindsAcceptedRouteAndReturnsProjectETag(t *testing.T) {
 	request.handler(ProjectHandler{Service: service}).ServeHTTP(recorder, request.request)
 	if recorder.Code != http.StatusOK || recorder.Header().Get("ETag") != `"1"` || recorder.Header().Get("Content-Type") != "application/vnd.lites.project.v2+json" {
 		t.Fatalf("status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+}
+
+func TestProjectGetReturnsDurableOwnerRecoverySnapshot(t *testing.T) {
+	projectID := "e6000000-0000-4000-8000-000000000005"
+	service := projectServiceStub{get: func(query ProjectGetQuery) (ProjectDetailResource, error) {
+		if query.ProjectID != projectID || query.TenantID == "" || query.UserID == "" {
+			t.Fatalf("query=%#v", query)
+		}
+		return ProjectDetailResource{
+			Project:    ProjectResource{ID: projectID, Version: 8, Status: "active", ProjectKind: "code", Title: "Recovered project", CreatedAt: missionAPINow, UpdatedAt: missionAPINow},
+			Brief:      "Durable brief",
+			Milestones: []ProjectMilestoneResource{{ID: "e6000000-0000-4000-8000-000000000006", Version: 5, Sequence: 1, Required: true, Status: "completed", Title: "Recovered milestone", EvidenceIDs: []string{"e6000000-0000-4000-8000-000000000007"}, UpdatedAt: missionAPINow}},
+			Artifacts:  []ProjectArtifactResource{},
+		}, nil
+	}}
+	request := authenticatedMissionRequest(t, http.MethodGet, "/v1/projects/"+projectID, "", "", "", "", false)
+	recorder := httptest.NewRecorder()
+	request.handler(ProjectHandler{Service: service}).ServeHTTP(recorder, request.request)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("ETag") != `"8"` || recorder.Header().Get("Content-Type") != "application/vnd.lites.project-detail.v2+json" {
+		t.Fatalf("status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, `"brief":"Durable brief"`) || !strings.Contains(body, `"evidence_ids"`) {
+		t.Fatalf("body=%s", body)
 	}
 }
 

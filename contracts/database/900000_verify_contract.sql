@@ -10,14 +10,14 @@ BEGIN
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE c.relkind = 'r' AND n.nspname IN ('identity','product','agent','contracts');
-  IF actual <> 92 THEN RAISE EXCEPTION 'expected 92 contract tables, found %', actual; END IF;
+  IF actual <> 93 THEN RAISE EXCEPTION 'expected 93 contract tables, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE c.relkind = 'r' AND n.nspname IN ('identity','product','agent','contracts')
     AND c.relrowsecurity AND c.relforcerowsecurity;
-  IF actual <> 85 THEN RAISE EXCEPTION 'expected 85 forced-RLS tables, found %', actual; END IF;
+  IF actual <> 86 THEN RAISE EXCEPTION 'expected 86 forced-RLS tables, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_trigger t
@@ -25,7 +25,7 @@ BEGIN
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE NOT t.tgisinternal AND t.tgname LIKE '%_append_only'
     AND n.nspname IN ('identity','product','agent','contracts');
-  IF actual <> 21 THEN RAISE EXCEPTION 'expected 21 append-only triggers, found %', actual; END IF;
+  IF actual <> 22 THEN RAISE EXCEPTION 'expected 22 append-only triggers, found %', actual; END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='identity.onboarding_claims'::regclass AND contype='u' AND pg_get_constraintdef(oid) LIKE '%claim_key%') THEN RAISE EXCEPTION 'claim_key uniqueness missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='identity' AND table_name='sessions' AND column_name='active_tenant_id' AND is_nullable='NO') THEN RAISE EXCEPTION 'session active tenant binding missing'; END IF;
@@ -103,9 +103,9 @@ ROLLBACK;
 SELECT json_build_object(
   'status','passed',
   'postgres_version',current_setting('server_version'),
-  'table_count',92,
-  'forced_rls_count',85,
-  'append_only_trigger_count',21,
+  'table_count',93,
+  'forced_rls_count',86,
+  'append_only_trigger_count',22,
   'cross_tenant_visible_rows',0,
   'append_only_mutations_succeeded',0,
   'critical_constraints_verified',19

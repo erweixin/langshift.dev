@@ -12,6 +12,9 @@ if (!input || !/^[0-9a-f]{40}$/.test(sourceCommit ?? "")) {
 }
 
 const raw = await readFile(input);
+const migrationManifestRaw = await readFile("deploy/migrations/manifest.json");
+const currentMigration = JSON.parse(migrationManifestRaw).migrations?.at(-1);
+if (!Number.isInteger(currentMigration?.version) || !currentMigration?.name) throw new Error("current migration manifest is invalid");
 const records = raw.toString("utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
 const packageName = "github.com/langshift/lites/internal/identity/postgres";
 const integrationTest = "TestMembershipLifecycleIsTenantScopedAuditedCASAndSessionSafe";
@@ -52,7 +55,8 @@ const reportBase = {
     testPackage: packageName,
     tests: requiredTests,
     testSource: "internal/identity/postgres/membership_service_integration_test.go",
-    database: "PostgreSQL 16 temporary isolated database with migrations through version 84",
+    database: `PostgreSQL 16 temporary isolated database with migrations through version ${currentMigration.version}`,
+    migration: { version: currentMigration.version, name: currentMigration.name, manifestSha256: createHash("sha256").update(migrationManifestRaw).digest("hex") },
     executionRole: "NOBYPASSRLS lites_identity_service",
   },
   results: metrics,

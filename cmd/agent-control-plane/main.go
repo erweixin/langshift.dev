@@ -49,6 +49,7 @@ func main() {
 func run(parent context.Context, configuration config, logger *slog.Logger) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	localCompose := configuration.environment == "engineering-test" && os.Getenv("LITES_LOCAL_COMPOSE") == "true"
 	secrets, err := loadSecretBundle(configuration.secretBundleFile)
 	if err != nil {
 		return err
@@ -87,14 +88,18 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("connect database")
 	}
 	defer pool.Close()
-	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure object store")
 	}
 	blobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 4 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
-	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure Vault")
+	}
+	payloadKeys, err := vaultkeys.ProviderForEnvironment(configuration.environment, localCompose, os.Getenv("LITES_LOCAL_PAYLOAD_KEY_SEED_FILE"), vaultReader, configuration.vaultKeyPrefix)
+	if err != nil {
+		return errors.New("configure payload keys")
 	}
 	dependencyCtx, dependencyCancel := context.WithTimeout(ctx, 5*time.Second)
 	dependencyErr := pool.Ping(dependencyCtx)
@@ -112,7 +117,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return errors.New("configure observability")
 	}
-	payloads := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: blobs, Metrics: telemetry.AgentMetrics()}
+	payloads := payload.EnvelopeStore{Keys: payloadKeys, Blobs: blobs, Metrics: telemetry.AgentMetrics()}
 	now := func() time.Time { return time.Now().UTC() }
 	store := executionpostgres.RunStore{
 		Pool: pool, Appender: eventpostgres.Appender{Observer: telemetry.AgentMetrics()}, IDKey: secrets.IDKey,

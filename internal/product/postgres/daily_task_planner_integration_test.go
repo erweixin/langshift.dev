@@ -172,11 +172,19 @@ func TestDailyTaskPlannerQueuesPinnedRunAndSchedulesExactlyOneTask(t *testing.T)
 	if err != nil || !submissionReplay.Replayed {
 		t.Fatalf("submission replay=%#v err=%v", submissionReplay, err)
 	}
+	submittedTasks, err := taskService.List(ctx, productapi.DailyTaskListQuery{TenantID: tenantID, UserID: userID})
+	if err != nil || len(submittedTasks.Items) != 1 || submittedTasks.Items[0].ReviewRecovery == nil || submittedTasks.Items[0].ReviewRecovery.SubmissionID != submitted.ID || submittedTasks.Items[0].ReviewRecovery.SubmissionRevision != 1 || submittedTasks.Items[0].ReviewRecovery.GenerationID != nil {
+		t.Fatalf("submitted task recovery=%#v err=%v", submittedTasks, err)
+	}
 	reviewService := ReviewService{Pool: pool, Runs: runs, Payloads: payloads, IDKey: key, IdempotencyKeyPepper: bytes.Repeat([]byte{0xc0}, 32), RequestDigestPepper: bytes.Repeat([]byte{0xc1}, 32), BehaviorEnvironment: "production", RunTimeout: 30 * time.Minute, RunMaxSteps: 8, RunMaxCostMicrounits: 200000, RunMaxAttempts: 3, IdempotencyTTL: 24 * time.Hour, Now: func() time.Time { return now }}
 	reviewCommand := productapi.GenerateReviewCommand{CommandMetadata: productapi.CommandMetadata{RequestID: "b8000000-0000-4000-8000-000000000043", ClientRequestID: "review-generate-b8", IdempotencyKey: "review-generate-key-b8", TenantID: tenantID, UserID: userID, SessionID: "b8000000-0000-4000-8000-000000000041"}, SubmissionID: submitted.ID, RubricVersionID: rubricID, ExpectedSubmissionRevision: 1, ExpectedTaskVersion: 3}
 	generated, err := reviewService.Generate(ctx, reviewCommand)
 	if err != nil || generated.RunID == "" || generated.Status != "queued" {
 		t.Fatalf("generated=%#v err=%v", generated, err)
+	}
+	generatingTasks, err := taskService.List(ctx, productapi.DailyTaskListQuery{TenantID: tenantID, UserID: userID})
+	if err != nil || generatingTasks.Items[0].ReviewRecovery == nil || generatingTasks.Items[0].ReviewRecovery.GenerationID == nil || *generatingTasks.Items[0].ReviewRecovery.GenerationID != generated.GenerationID || generatingTasks.Items[0].ReviewRecovery.RunID == nil || *generatingTasks.Items[0].ReviewRecovery.RunID != generated.RunID || generatingTasks.Items[0].ReviewRecovery.GenerationStatus == nil || *generatingTasks.Items[0].ReviewRecovery.GenerationStatus != "generating" {
+		t.Fatalf("generating task recovery=%#v err=%v", generatingTasks, err)
 	}
 	var reviewStartID, reviewStartRef, reviewStartHash string
 	if err = admin.QueryRow(ctx, `SELECT o.command_id::text,o.payload_ref,o.payload_hash FROM product.submission_review_generations g JOIN agent.outbox o ON o.tenant_id=g.tenant_id AND o.aggregate_id=g.review_run_id AND o.command_type='StartAgentRun' WHERE g.tenant_id=$1 AND g.id=$2 AND g.behavior_snapshot_id=$3 AND g.behavior_channel_id=$4`, tenantID, generated.GenerationID, evaluatorBinding.SnapshotID, evaluatorBinding.ChannelID).Scan(&reviewStartID, &reviewStartRef, &reviewStartHash); err != nil {
@@ -198,6 +206,38 @@ func TestDailyTaskPlannerQueuesPinnedRunAndSchedulesExactlyOneTask(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = workerRuns.CompleteRunTerminal(ctx, executionpostgres.CompleteRunCommand{Claim: reviewClaim, ExpectedRunVersion: reviewClaim.RunVersion, TargetState: "failed", ResultHash: strings.Repeat("4", 64), Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: reviewStart.CorrelationID, RunEvent: executionpostgres.PayloadPointer{Ref: "encrypted://review/run-failed", Hash: strings.Repeat("5", 64)}, AttemptCompletedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://review/attempt-failed", Hash: strings.Repeat("6", 64)}}); err != nil {
+		t.Fatal(err)
+	}
+	reviewReconciler := ReviewReconciler{Pool: pool, Appender: appender, Payloads: payloads, IDKey: key, StoreEpoch: epoch, Now: func() time.Time { return now }}
+	failedReviewResult, err := reviewReconciler.ReconcileTenant(ctx, tenantID, 100)
+	if err != nil || failedReviewResult.Failed != 1 {
+		t.Fatalf("failed review reconcile=%#v err=%v", failedReviewResult, err)
+	}
+	failedTasks, err := taskService.List(ctx, productapi.DailyTaskListQuery{TenantID: tenantID, UserID: userID})
+	if err != nil || failedTasks.Items[0].Status != "submitted" || failedTasks.Items[0].ReviewRecovery == nil || failedTasks.Items[0].ReviewRecovery.GenerationStatus == nil || *failedTasks.Items[0].ReviewRecovery.GenerationStatus != "failed" || failedTasks.Items[0].ReviewRecovery.FailureReason == nil {
+		t.Fatalf("failed task recovery=%#v err=%v", failedTasks, err)
+	}
+
+	reviewCommand.RequestID = "b8000000-0000-4000-8000-000000000044"
+	reviewCommand.ClientRequestID = "review-retry-b8"
+	reviewCommand.IdempotencyKey = "review-retry-key-b8"
+	retried, err := reviewService.Generate(ctx, reviewCommand)
+	if err != nil || retried.GenerationID == generated.GenerationID || retried.RunID == generated.RunID {
+		t.Fatalf("retried review=%#v original=%#v err=%v", retried, generated, err)
+	}
+	generated = retried
+	if err = admin.QueryRow(ctx, `SELECT o.command_id::text,o.payload_ref,o.payload_hash FROM product.submission_review_generations g JOIN agent.outbox o ON o.tenant_id=g.tenant_id AND o.aggregate_id=g.review_run_id AND o.command_type='StartAgentRun' WHERE g.tenant_id=$1 AND g.id=$2`, tenantID, generated.GenerationID).Scan(&reviewStartID, &reviewStartRef, &reviewStartHash); err != nil {
+		t.Fatal(err)
+	}
+	reviewStartBody, err = payloads.Get(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: reviewStartID, Class: "agent-run-command", ContentType: "application/json"}, payload.Manifest{Ref: reviewStartRef, Hash: reviewStartHash})
+	if err != nil || json.Unmarshal(reviewStartBody, &reviewStart) != nil || reviewStart.RunID != generated.RunID {
+		t.Fatalf("retry review start=%s err=%v", reviewStartBody, err)
+	}
+	reviewClaim, err = workerRuns.ClaimStart(ctx, executionpostgres.ClaimRunCommand{Command: eventpostgres.DeliveredCommand{TenantID: tenantID, StoreEpoch: epoch, CommandID: reviewStartID, CommandType: "StartAgentRun", AggregateKind: "run", AggregateID: generated.RunID, PayloadRef: reviewStartRef, PayloadHash: reviewStartHash}, ConsumerName: "evaluator-agent-test", WorkerID: "evaluator-worker", CorrelationID: reviewStart.CorrelationID, Actor: json.RawMessage(`{"kind":"service"}`), RunEvent: executionpostgres.PayloadPointer{Ref: "encrypted://review/retry-run-started", Hash: strings.Repeat("7", 64)}, AttemptStartedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://review/retry-attempt-started", Hash: strings.Repeat("8", 64)}, AttemptExpiredEvent: executionpostgres.PayloadPointer{Ref: "encrypted://review/retry-attempt-expired", Hash: strings.Repeat("9", 64)}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	reviewJSON := []byte(`{"schema_version":1,"verdict":"pass","summary":"The invariant is explained and implemented.","deterministic_results":{"checks":[{"name":"submission present","status":"pass","evidence":"The submitted source is non-empty."}]},"dimensions":[{"id":"correctness","score":90,"rationale":"The transaction boundary is explicit.","evidence_quotes":["binds state and event"]}],"strengths":["Clear invariant"],"improvements":[],"capability_evidence":[{"capability_id":"capability-1","level":"demonstrated","statement":"The submitted artifact demonstrates the route capability."}],"next_action":"Exercise rollback.","uncertainty":"The evaluator did not execute external infrastructure."}`)
 	reviewMessageJSON := mustJSON(t, map[string]any{"schema_version": 1, "role": "assistant", "content": []map[string]any{{"type": "text", "text": string(reviewJSON)}}})
 	reviewMessageID := "b8000000-0000-4000-8000-000000000051"
@@ -209,17 +249,20 @@ func TestDailyTaskPlannerQueuesPinnedRunAndSchedulesExactlyOneTask(t *testing.T)
 	if _, err = workerRuns.CompleteRunWithMessage(ctx, executionpostgres.CompleteRunMessageCommand{Completion: executionpostgres.CompleteRunCommand{Claim: reviewClaim, ExpectedRunVersion: reviewClaim.RunVersion, TargetState: "succeeded", ResultHash: strings.Repeat("4", 64), Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: reviewStart.CorrelationID, RunEvent: executionpostgres.PayloadPointer{Ref: "encrypted://review/run-succeeded", Hash: strings.Repeat("5", 64)}, AttemptCompletedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://review/attempt-completed", Hash: strings.Repeat("6", 64)}}, MessageID: reviewMessageID, Message: executionpostgres.PayloadPointer{Ref: reviewMessagePayload.Ref, Hash: reviewMessagePayload.Hash}, ContentHash: hex.EncodeToString(reviewDigest[:]), FinalizedEvent: executionpostgres.PayloadPointer{Ref: "encrypted://review/message-finalized", Hash: strings.Repeat("7", 64)}}); err != nil {
 		t.Fatal(err)
 	}
-	reviewReconciler := ReviewReconciler{Pool: pool, Appender: appender, Payloads: payloads, IDKey: key, StoreEpoch: epoch, Now: func() time.Time { return now }}
 	reviewResult, err := reviewReconciler.ReconcileTenant(ctx, tenantID, 100)
 	if err != nil || reviewResult.Succeeded != 1 {
 		t.Fatalf("review reconcile=%#v err=%v", reviewResult, err)
 	}
-	var reviewCount, evidenceCount int
+	var reviewCount, evidenceCount, reviewGenerationCount int
 	var taskStatus string
 	var finalTaskVersion uint64
-	queryErr = admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM product.reviews WHERE tenant_id=$1 AND submission_id=$2),(SELECT count(*) FROM product.evidence WHERE tenant_id=$1 AND source_kind='review' AND source_id IN (SELECT id FROM product.reviews WHERE tenant_id=$1)),status,version FROM product.daily_tasks WHERE tenant_id=$1 AND id=$3`, tenantID, submitted.ID, taskID).Scan(&reviewCount, &evidenceCount, &taskStatus, &finalTaskVersion)
-	if queryErr != nil || reviewCount != 1 || evidenceCount != 1 || taskStatus != "completed" || finalTaskVersion != 5 {
-		t.Fatalf("review=%d evidence=%d task=%s/%d query=%v", reviewCount, evidenceCount, taskStatus, finalTaskVersion, queryErr)
+	queryErr = admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM product.reviews WHERE tenant_id=$1 AND submission_id=$2),(SELECT count(*) FROM product.evidence WHERE tenant_id=$1 AND source_kind='review' AND source_id IN (SELECT id FROM product.reviews WHERE tenant_id=$1)),(SELECT count(*) FROM product.submission_review_generations WHERE tenant_id=$1 AND submission_id=$2),status,version FROM product.daily_tasks WHERE tenant_id=$1 AND id=$3`, tenantID, submitted.ID, taskID).Scan(&reviewCount, &evidenceCount, &reviewGenerationCount, &taskStatus, &finalTaskVersion)
+	if queryErr != nil || reviewCount != 1 || evidenceCount != 1 || reviewGenerationCount != 2 || taskStatus != "completed" || finalTaskVersion != 5 {
+		t.Fatalf("review=%d evidence=%d generations=%d task=%s/%d query=%v", reviewCount, evidenceCount, reviewGenerationCount, taskStatus, finalTaskVersion, queryErr)
+	}
+	completedTasks, err := taskService.List(ctx, productapi.DailyTaskListQuery{TenantID: tenantID, UserID: userID})
+	if err != nil || completedTasks.Items[0].ReviewRecovery == nil || completedTasks.Items[0].ReviewRecovery.GenerationStatus == nil || *completedTasks.Items[0].ReviewRecovery.GenerationStatus != "succeeded" || completedTasks.Items[0].ReviewRecovery.ReviewID == nil || completedTasks.Items[0].ReviewRecovery.EvidenceID == nil {
+		t.Fatalf("completed task recovery=%#v err=%v", completedTasks, err)
 	}
 	var reviewID string
 	if err = admin.QueryRow(ctx, `SELECT id::text FROM product.reviews WHERE tenant_id=$1 AND submission_id=$2`, tenantID, submitted.ID).Scan(&reviewID); err != nil {
@@ -297,7 +340,10 @@ func TestDailyTaskPlannerQueuesPinnedRunAndSchedulesExactlyOneTask(t *testing.T)
 	if resumedReminder.Version != 3 || resumedReminder.Status != "active" || resumedReminder.NextOccurrenceAt == nil {
 		t.Fatalf("resumed reminder=%#v", resumedReminder)
 	}
-	cancelledReminder := updateReminder("b8000000-0000-4000-8000-000000000057", "reminder-cancel-b8", "reminder-cancel-key-b8", "cancel", 3)
+	cancelledReminder, err := reminderService.Update(ctx, productapi.UpdateReminderCommand{CommandMetadata: productapi.CommandMetadata{RequestID: "b8000000-0000-4000-8000-000000000057", ClientRequestID: "reminder-cancel-b8", IdempotencyKey: "reminder-cancel-key-b8", TenantID: tenantID, UserID: userID, SessionID: "b8000000-0000-4000-8000-000000000041"}, ReminderID: createdReminder.ID, Action: "cancel", Reason: "Career plan completed", OperationID: "reminders.cancel", ExpectedVersion: 3})
+	if err != nil {
+		t.Fatalf("cancel reminder: %v", err)
+	}
 	if cancelledReminder.Version != 4 || cancelledReminder.Status != "cancelled" || cancelledReminder.NextOccurrenceAt != nil || cancelledReminder.CancelledAt == nil {
 		t.Fatalf("cancelled reminder=%#v", cancelledReminder)
 	}
@@ -305,9 +351,9 @@ func TestDailyTaskPlannerQueuesPinnedRunAndSchedulesExactlyOneTask(t *testing.T)
 	if !errors.Is(err, productapi.ErrStateConflict) {
 		t.Fatalf("terminal update error=%v", err)
 	}
-	var reminderEvents int
-	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='reminder_schedule' AND aggregate_id=$2 AND aggregate_version BETWEEN 1 AND 4`, tenantID, createdReminder.ID).Scan(&reminderEvents); err != nil || reminderEvents != 4 {
-		t.Fatalf("reminder events=%d err=%v", reminderEvents, err)
+	var reminderEvents, reminderCancelResponses int
+	if err = admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent.events WHERE tenant_id=$1 AND aggregate_kind='reminder_schedule' AND aggregate_id=$2 AND aggregate_version BETWEEN 1 AND 4),(SELECT count(*) FROM agent.idempotency_responses WHERE tenant_id=$1 AND operation_id='reminders.cancel')`, tenantID, createdReminder.ID).Scan(&reminderEvents, &reminderCancelResponses); err != nil || reminderEvents != 4 || reminderCancelResponses != 1 {
+		t.Fatalf("reminder events=%d cancel responses=%d err=%v", reminderEvents, reminderCancelResponses, err)
 	}
 	dueCommand := createReminder
 	dueCommand.RequestID = "b8000000-0000-4000-8000-000000000059"

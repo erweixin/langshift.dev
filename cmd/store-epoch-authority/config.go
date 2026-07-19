@@ -52,9 +52,15 @@ func (value config) validate() error {
 		return errors.New("store epoch health listener must use a loopback address")
 	}
 	if value.allowInsecureDevelopment {
-		host, _, err := net.SplitHostPort(value.listenAddress)
-		if err != nil || !isLoopbackHost(host) {
-			return errors.New("insecure development listener must use a loopback address")
+		if value.serverCertificateFile == "" {
+			host, _, err := net.SplitHostPort(value.listenAddress)
+			if err != nil || !isLoopbackHost(host) {
+				return errors.New("insecure development listener must use a loopback address")
+			}
+			return nil
+		}
+		if value.serverClientCA == "" {
+			return errors.New("network-reachable development listener requires mTLS")
 		}
 		return nil
 	}

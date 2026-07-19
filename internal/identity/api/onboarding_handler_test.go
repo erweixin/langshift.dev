@@ -14,10 +14,15 @@ import (
 
 type onboardingStub struct {
 	create func(context.Context, OnboardingCreateCommand) (OnboardingCreateResult, error)
+	update func(context.Context, OnboardingUpdateCommand) (OnboardingUpdateResult, error)
 }
 
 func (stub onboardingStub) CreateOnboarding(ctx context.Context, command OnboardingCreateCommand) (OnboardingCreateResult, error) {
 	return stub.create(ctx, command)
+}
+
+func (stub onboardingStub) UpdateOnboarding(ctx context.Context, command OnboardingUpdateCommand) (OnboardingUpdateResult, error) {
+	return stub.update(ctx, command)
 }
 
 func TestOnboardingCreateBootstrapsSecureAnonymousCookies(t *testing.T) {
@@ -48,5 +53,23 @@ func TestOnboardingCreateBootstrapsSecureAnonymousCookies(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	if len(cookies) != 2 || cookies[0].Name != anonymoussession.CookieName || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[1].Name != anonymoussession.CSRFCookieName || cookies[1].HttpOnly || !anonymoussession.VerifyCSRF(credential.Raw, cookies[1].Value, key) {
 		t.Fatalf("cookies=%#v", cookies)
+	}
+}
+
+func TestOnboardingUpdateRequiresCASAndReturnsDurableVersion(t *testing.T) {
+	const sessionID = "6b000000-0000-4000-8000-000000000010"
+	service := onboardingStub{update: func(_ context.Context, command OnboardingUpdateCommand) (OnboardingUpdateResult, error) {
+		if command.PrincipalKind != trustedcontext.AuthenticatedUser || command.OnboardingSessionID != sessionID || command.UserID != "user-auth" || command.TenantID != "tenant-auth" || command.ExpectedOnboardingVersion != 1 || command.ClientRequestID != "onboarding-update-request-001" {
+			t.Fatalf("command=%#v", command)
+		}
+		if command.CurrentRole == nil || *command.CurrentRole != "Senior frontend engineer" || command.ExperienceSummary == nil || *command.ExperienceSummary != "Led a migration across three teams" || command.WeeklyMinutes == nil || *command.WeeklyMinutes != 240 {
+			t.Fatalf("patch=%#v", command)
+		}
+		return OnboardingUpdateResult{ID: sessionID, Version: 2, Status: "collecting", UpdatedAt: apiTestNow}, nil
+	}}
+	target := "/v1/onboarding-sessions/" + sessionID
+	recorder := serveAuthenticatedHandler(t, Handler{Onboarding: service, Now: func() time.Time { return apiTestNow }}, http.MethodPatch, target, "onboarding-update-key-0001", `"1"`, `{"request_id":"onboarding-update-request-001","current_role":" Senior frontend engineer ","experience_summary":"Led a migration across three teams","weekly_minutes":240,"expected_onboarding_version":1}`)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("ETag") != `"2"` || recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status=%d etag=%q cache=%q body=%s", recorder.Code, recorder.Header().Get("ETag"), recorder.Header().Get("Cache-Control"), recorder.Body.String())
 	}
 }

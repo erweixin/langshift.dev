@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
@@ -590,7 +591,7 @@ func mapLookupError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return api.ErrInvalidCredentials
 	}
-	return api.ErrDependencyUnavailable
+	return fmt.Errorf("%w: %v", api.ErrDependencyUnavailable, err)
 }
 
 func mapIdentityError(err error) error {
@@ -619,5 +620,5 @@ func mapIdentityError(err error) error {
 	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
 		return api.ErrStateConflict
 	}
-	return api.ErrDependencyUnavailable
+	return fmt.Errorf("%w: %v", api.ErrDependencyUnavailable, err)
 }

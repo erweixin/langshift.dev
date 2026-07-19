@@ -11,6 +11,11 @@ import (
 
 var ErrInvalidDocument = errors.New("route document is invalid")
 
+// ErrUngroundedDocument means that a shape-valid model response refers to a
+// capability or evidence item outside the immutable planner input, or claims a
+// stronger confidence level than that input can justify.
+var ErrUngroundedDocument = errors.New("route document is not grounded in the planner input")
+
 var documentIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
 
 // Document is the model-produced, user-visible RouteRevision payload. The
@@ -58,6 +63,28 @@ type FirstTask struct {
 	SuccessCriteria  []string `json:"success_criteria"`
 }
 
+// GroundingInput is the deterministic, model-independent policy input used
+// before a route is persisted. It deliberately contains only immutable IDs and
+// review state; prompt wording cannot weaken these checks.
+type GroundingInput struct {
+	Claims              []GroundingClaim
+	Evidence            []GroundingEvidence
+	TargetCapabilityIDs []string
+}
+
+type GroundingClaim struct {
+	CapabilityID          string
+	Status                string
+	VerificationLevel     string
+	SupportingEvidenceIDs []string
+}
+
+type GroundingEvidence struct {
+	ID          string
+	Status      string
+	Invalidated bool
+}
+
 func DecodeDocument(encoded []byte) (Document, error) {
 	if len(encoded) == 0 || len(encoded) > 1<<20 {
 		return Document{}, ErrInvalidDocument
@@ -69,6 +96,110 @@ func DecodeDocument(encoded []byte) (Document, error) {
 		return Document{}, ErrInvalidDocument
 	}
 	return document, nil
+}
+
+// ValidateGrounding enforces the boundary between model inference and durable
+// product truth. A route may plan toward target-role requirements, but it may
+// only describe a capability as supported or verified when the current active
+// claim revision links the cited, non-invalidated evidence.
+func ValidateGrounding(document Document, input GroundingInput) error {
+	allowedCapabilities := make(map[string]struct{}, len(input.Claims)+len(input.TargetCapabilityIDs))
+	claims := make(map[string]GroundingClaim, len(input.Claims))
+	for _, claim := range input.Claims {
+		if claim.Status != "active" || claim.CapabilityID == "" {
+			continue
+		}
+		allowedCapabilities[claim.CapabilityID] = struct{}{}
+		claims[claim.CapabilityID] = claim
+	}
+	for _, capabilityID := range input.TargetCapabilityIDs {
+		if capabilityID == "" {
+			return ErrUngroundedDocument
+		}
+		allowedCapabilities[capabilityID] = struct{}{}
+	}
+	evidence := make(map[string]GroundingEvidence, len(input.Evidence))
+	for _, item := range input.Evidence {
+		if item.ID != "" && !item.Invalidated && (item.Status == "recorded" || item.Status == "verified") {
+			evidence[item.ID] = item
+		}
+	}
+	if len(allowedCapabilities) == 0 {
+		return ErrUngroundedDocument
+	}
+
+	for _, assessment := range append(append([]GroundedAssessment(nil), document.TransferableExperience...), document.Gaps...) {
+		if len(assessment.CapabilityIDs) == 0 || !capabilitiesAllowed(assessment.CapabilityIDs, allowedCapabilities) {
+			return ErrUngroundedDocument
+		}
+		for _, evidenceID := range assessment.EvidenceIDs {
+			if _, ok := evidence[evidenceID]; !ok {
+				return ErrUngroundedDocument
+			}
+		}
+		if assessment.Confidence == "inferred" {
+			continue
+		}
+		if len(assessment.EvidenceIDs) == 0 {
+			return ErrUngroundedDocument
+		}
+		for _, capabilityID := range assessment.CapabilityIDs {
+			claim, ok := claims[capabilityID]
+			if !ok || !allEvidenceLinked(assessment.EvidenceIDs, claim.SupportingEvidenceIDs) {
+				return ErrUngroundedDocument
+			}
+			if assessment.Confidence == "verified" && !verifiedClaimLevel(claim.VerificationLevel) {
+				return ErrUngroundedDocument
+			}
+		}
+		if assessment.Confidence == "verified" {
+			for _, evidenceID := range assessment.EvidenceIDs {
+				if evidence[evidenceID].Status != "verified" {
+					return ErrUngroundedDocument
+				}
+			}
+		}
+	}
+	for _, step := range document.Bridge {
+		if !capabilitiesAllowed(step.FromCapabilityIDs, allowedCapabilities) || !capabilitiesAllowed(step.ToCapabilityIDs, allowedCapabilities) {
+			return ErrUngroundedDocument
+		}
+	}
+	for _, stage := range document.Stages {
+		if !capabilitiesAllowed(stage.CapabilityIDs, allowedCapabilities) {
+			return ErrUngroundedDocument
+		}
+	}
+	if !capabilitiesAllowed(document.FirstTask.CapabilityIDs, allowedCapabilities) {
+		return ErrUngroundedDocument
+	}
+	return nil
+}
+
+func capabilitiesAllowed(capabilityIDs []string, allowed map[string]struct{}) bool {
+	for _, capabilityID := range capabilityIDs {
+		if _, ok := allowed[capabilityID]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func allEvidenceLinked(cited, linked []string) bool {
+	index := make(map[string]struct{}, len(linked))
+	for _, evidenceID := range linked {
+		index[evidenceID] = struct{}{}
+	}
+	for _, evidenceID := range cited {
+		if _, ok := index[evidenceID]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func verifiedClaimLevel(level string) bool {
+	return level == "demonstrated" || level == "applied" || level == "reviewer_verified"
 }
 
 func (document Document) Valid() bool {

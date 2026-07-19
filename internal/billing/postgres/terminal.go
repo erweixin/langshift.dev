@@ -23,6 +23,28 @@ type ReleaseCommand struct {
 	ReleasedEvent                                                   PayloadPointer
 }
 
+func (store Store) Settle(ctx context.Context, command SettleCommand) (Reservation, error) {
+	if !store.Valid() {
+		return Reservation{}, ErrConfiguration
+	}
+	if err := store.RequireEpoch(ctx); err != nil {
+		return Reservation{}, err
+	}
+	tx, err := store.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return Reservation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := store.SettleInTx(ctx, tx, command)
+	if err != nil {
+		return Reservation{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Reservation{}, err
+	}
+	return result, nil
+}
+
 func (store Store) Release(ctx context.Context, command ReleaseCommand) (Reservation, error) {
 	if !store.Valid() {
 		return Reservation{}, ErrConfiguration
@@ -100,7 +122,7 @@ func (store Store) SettleInTx(ctx context.Context, tx pgx.Tx, command SettleComm
 		return Reservation{}, err
 	}
 	reservation.Status, reservation.Version, reservation.ActualUnits, reservation.ReleasedUnits, reservation.UpdatedAt = "settled", 2, command.ActualUnits, released, now
-	reservation.ProviderAttemptID, reservation.TerminalEventID = command.ProviderAttemptID, identifier.event
+	reservation.ProviderAttemptID, reservation.TerminalEventID, reservation.LedgerEntryID = command.ProviderAttemptID, identifier.event, identifier.ledger
 	return reservation, nil
 }
 
@@ -153,7 +175,7 @@ func (store Store) ReleaseInTx(ctx context.Context, tx pgx.Tx, command ReleaseCo
 		return Reservation{}, err
 	}
 	reservation.Status, reservation.Version, reservation.ActualUnits, reservation.ReleasedUnits, reservation.UpdatedAt = "released", 2, 0, reservation.ReservedUnits, now
-	reservation.TerminalEventID, reservation.ReasonCode = identifier.event, command.ReasonCode
+	reservation.TerminalEventID, reservation.LedgerEntryID, reservation.ReasonCode = identifier.event, identifier.ledger, command.ReasonCode
 	return reservation, nil
 }
 
@@ -161,8 +183,8 @@ func lockReservation(ctx context.Context, tx pgx.Tx, tenantID, reservationID str
 	var reservation Reservation
 	var userID, subjectKind, subjectID string
 	var actual, released *uint64
-	var providerAttemptID, terminalEventID, reasonCode *string
-	err := tx.QueryRow(ctx, `SELECT id::text,user_id::text,bucket_id::text,operation_key,subject_kind,subject_id::text,reserved_units,status,version,expires_at,updated_at,actual_units,released_units,provider_attempt_id::text,terminal_event_id::text,reason_code FROM contracts.usage_reservations WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, reservationID).Scan(&reservation.ReservationID, &userID, &reservation.BucketID, &reservation.OperationKey, &subjectKind, &subjectID, &reservation.ReservedUnits, &reservation.Status, &reservation.Version, &reservation.ExpiresAt, &reservation.UpdatedAt, &actual, &released, &providerAttemptID, &terminalEventID, &reasonCode)
+	var providerAttemptID, terminalEventID, ledgerEntryID, reasonCode *string
+	err := tx.QueryRow(ctx, `SELECT id::text,user_id::text,bucket_id::text,operation_key,subject_kind,subject_id::text,reserved_units,status,version,expires_at,updated_at,actual_units,released_units,provider_attempt_id::text,terminal_event_id::text,ledger_entry_id::text,reason_code FROM contracts.usage_reservations WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, reservationID).Scan(&reservation.ReservationID, &userID, &reservation.BucketID, &reservation.OperationKey, &subjectKind, &subjectID, &reservation.ReservedUnits, &reservation.Status, &reservation.Version, &reservation.ExpiresAt, &reservation.UpdatedAt, &actual, &released, &providerAttemptID, &terminalEventID, &ledgerEntryID, &reasonCode)
 	if err != nil {
 		return Reservation{}, "", "", "", ErrReservationConflict
 	}
@@ -177,6 +199,9 @@ func lockReservation(ctx context.Context, tx pgx.Tx, tenantID, reservationID str
 	}
 	if terminalEventID != nil {
 		reservation.TerminalEventID = *terminalEventID
+	}
+	if ledgerEntryID != nil {
+		reservation.LedgerEntryID = *ledgerEntryID
 	}
 	if reasonCode != nil {
 		reservation.ReasonCode = *reasonCode

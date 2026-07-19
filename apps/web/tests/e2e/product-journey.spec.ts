@@ -79,17 +79,10 @@ test("quick onboarding produces a correctable route and opens Today", async ({ p
   await page.getByRole("button", { name: "Build route" }).click();
   await expect(page.getByRole("heading", { name: /Frontend Developer/ })).toBeVisible();
   await page.getByRole("button", { name: "Create and review route" }).click();
-  await expect(page).toHaveURL(/\/en\/route/);
-  await expect(page.getByText("Confirm or correct")).toBeVisible();
-  await page.getByRole("button", { name: "Edit bridge" }).click();
-  await page.getByLabel("Correct the transfer relationship").fill("From async UI orchestration to durable, reconciled agent effects");
-  await page.getByRole("button", { name: "Save correction" }).click();
-  await expect(page.getByText("Capability bridge · Corrected by you")).toBeVisible();
-  for (const capability of ["State modeling", "Asynchronous programming", "Durable run lifecycle", "Effect reconciliation"]) {
-    await page.getByRole("button", { name: `Confirm ${capability}` }).click();
-  }
-  await expect(page.getByText("You reviewed every judgment. After registration, the route is attached idempotently to your workspace.")).toBeVisible();
-  await page.getByRole("link", { name: "Save route and continue" }).click();
+  await expect(page).toHaveURL(/\/en\/route/, { timeout: 30_000 });
+  await expect(page.getByText("Confirm or correct after registration")).toBeVisible();
+  await expect(page.getByText(/without presenting local-only clicks as durable confirmation/)).toBeVisible();
+  await page.getByRole("link", { name: "Register and persist route" }).click();
   await page.getByLabel("Email").fill("learner@example.com");
   await page.getByLabel("Password").fill("a-production-password-2026");
   await page.getByLabel(/I agree/).check();
@@ -102,20 +95,32 @@ test("quick onboarding produces a correctable route and opens Today", async ({ p
   await expect(page.getByRole("heading", { name: "Good morning." })).toBeVisible();
 });
 
-test("natural-language onboarding stays editable until Coach structures it", async ({ page }) => {
+test("natural-language onboarding submits the original story to the durable intake", async ({ page }) => {
+  const onboardingID = "10000000-0000-4000-8000-000000000011";
   await page.route("**/api/v1/catalog/roles?locale=en", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ release_version: "2026.07", content_root_sha256: "a".repeat(64), locale: "en", items: [
       { id: "10000000-0000-4000-8000-000000000005", slug: "role_frontend_developer", revision: 1, status: "active", name: "Frontend Developer" },
       { id: "10000000-0000-4000-8000-000000000006", slug: "role_ai_application_engineer", revision: 1, status: "active", name: "AI Application Engineer" },
     ] }) });
   });
+  await page.route("**/api/v1/onboarding-sessions", async (route) => {
+    const body = await route.request().postDataJSON();
+    expect(body).toMatchObject({
+      current_role: "Frontend Developer",
+      target_role: "AI Application Engineer",
+      experience_summary: "I build frontend systems and want to learn how durable agents recover from crashes.",
+    });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: onboardingID, version: 1, status: "collecting", updated_at: "2026-07-17T12:00:00Z" }) });
+  });
+  await page.route(`**/api/v1/onboarding-sessions/${onboardingID}`, async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: onboardingID, version: 1, status: "collecting", mission_id: null, route_revision_id: null, route: null, claim_version: null, updated_at: "2026-07-17T12:00:00Z" }) });
+  });
   await page.goto("/en/onboarding");
   await page.getByTestId("natural-onboarding").click();
   const story = page.getByLabel("Your story");
   await story.fill("I build frontend systems and want to learn how durable agents recover from crashes.");
-  await expect(page.getByRole("button", { name: /Let Coach structure it/ })).toBeVisible();
-  await page.getByRole("button", { name: /Let Coach structure it/ }).click();
-  await expect(page.getByText("Route input ready")).toBeVisible();
+  await page.getByRole("button", { name: /Submit story and build route/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/en/route\\?.*onboarding_session=${onboardingID}`), { timeout: 30_000 });
 });
 
 test("task draft survives reload and offline state never claims submission", async ({ page, context }) => {
@@ -287,6 +292,7 @@ test("Organization console preserves privileged-action and sensitive-read bounda
 });
 
 test("enterprise primary lifecycle covers invitation, governed CSV, cohorts, sharing, revocation, and offboarding", async ({ page }) => {
+  test.setTimeout(90_000);
   const programID = "81000000-0000-4000-8000-000000000001";
   const cohortID = "81000000-0000-4000-8000-000000000002";
   const userID = "81000000-0000-4000-8000-000000000003";

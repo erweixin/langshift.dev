@@ -47,6 +47,9 @@ func TestPayloadEvidenceWritesSanitizedResultAndSettlement(t *testing.T) {
 			t.Fatalf("descriptor=%#v", descriptor)
 		}
 	}
+	if store.descriptors[0].ObjectID != "attempt-1-provider-result" || store.descriptors[1].ObjectID != "attempt-1-usage-settlement" {
+		t.Fatalf("S3-safe evidence object IDs=%q,%q", store.descriptors[0].ObjectID, store.descriptors[1].ObjectID)
+	}
 	var result map[string]any
 	if json.Unmarshal(store.values[0], &result) != nil || result["provider_id"] != "openai" || result["request_hash"] != "request-hash" {
 		t.Fatalf("result evidence=%s", store.values[0])

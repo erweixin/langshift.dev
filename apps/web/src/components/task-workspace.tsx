@@ -8,17 +8,19 @@ import { apiRequest, newIdempotencyKey } from "@/lib/api/client";
 import { demoMode } from "@/lib/demo";
 import { demoTask } from "@/lib/model";
 import { useProductWorkspace, type DailyTask } from "@/lib/use-product-workspace";
+import { WorkspaceLoadError } from "./workspace-load-error";
 
 type Phase = "work" | "submitting" | "queued" | "reviewed" | "error";
 type ReviewDocument = { schema_version: 1; verdict: "pass" | "needs_revision"; summary: string; deterministic_results: { checks: Array<{ name: string; status: string; evidence: string }> }; dimensions: Array<{ id: string; score: number; rationale: string; evidence_quotes: string[] }>; strengths: string[]; improvements: string[]; capability_evidence: Array<{ capability_id: string; level: string; statement: string }>; next_action: string; uncertainty: string };
 type ReviewResource = { id: string; status: string; evidence_id: string; review: ReviewDocument; reviewed_at: string };
+type ReviewRecovery = NonNullable<DailyTask["review_recovery"]>;
 
 export function TaskWorkspace({ locale }: { locale: Locale }) {
   const zh = locale === "zh-CN";
   const query = useSearchParams();
   const workspace = useProductWorkspace(locale, !demoMode);
   const requestedTaskID = query.get("task");
-  const task = workspace.tasks.find((item) => item.id === requestedTaskID) ?? workspace.currentTask;
+  const task = workspace.currentRouteTasks.find((item) => item.id === requestedTaskID) ?? workspace.currentTask;
   const [content, setContent] = useState("");
   const [understanding, setUnderstanding] = useState("");
   const [phase, setPhase] = useState<Phase>("work");
@@ -59,6 +61,129 @@ export function TaskWorkspace({ locale }: { locale: Locale }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [content, understanding, phase]);
 
+  async function readTask(taskID: string, signal?: AbortSignal) {
+    const taskList = await apiRequest<{ items: DailyTask[] }>("/v1/daily-tasks", { accept: "application/vnd.lites.daily-tasks.v2+json", signal });
+    return taskList.items.find((item) => item.id === taskID) ?? null;
+  }
+
+  async function finishReview(updated: DailyTask, reviewID: string, signal?: AbortSignal) {
+    const completed = await apiRequest<ReviewResource>(`/v1/reviews/${reviewID}`, { accept: "application/vnd.lites.review.v2+json", signal });
+    setReview(completed);
+    setSubmissionID(updated.review_recovery?.submission_id ?? updated.current_submission_id ?? "");
+    setTaskVersion(updated.version);
+    setTaskStatus(updated.status);
+    setPhase("reviewed");
+    localStorage.removeItem(draftKey);
+  }
+
+  async function pollReview(taskID: string, signal?: AbortSignal) {
+    setPhase("queued");
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const updated = await readTask(taskID, signal);
+      if (!updated) throw new Error("daily_task_not_found");
+      setTaskVersion(updated.version);
+      setTaskStatus(updated.status);
+      const recovery = updated.review_recovery;
+      const reviewID = updated.current_review_id ?? recovery?.review_id;
+      if (reviewID) {
+        await finishReview(updated, reviewID, signal);
+        return;
+      }
+      if (recovery?.generation_status === "failed" || recovery?.generation_status === "superseded") {
+        throw new Error(recovery.failure_reason ? `review_${recovery.failure_reason}` : `review_${recovery.generation_status}`);
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+    throw new Error("review_timeout");
+  }
+
+  async function admitReview(current: DailyTask, recovery: ReviewRecovery, signal?: AbortSignal) {
+    const rubric = workspace.missions.rubrics.find((item) => item.practice_kind === current.practice_kind);
+    const rubricID = recovery.rubric_version_id ?? rubric?.id;
+    if (!rubricID) throw new Error("rubric_revision_unavailable");
+    await apiRequest("/v1/reviews", {
+      method: "POST",
+      signal,
+      contentType: "application/vnd.lites.review-generate.v2+json",
+      idempotencyKey: newIdempotencyKey(),
+      ifMatch: `"${current.version}"`,
+      body: {
+        request_id: newIdempotencyKey(),
+        submission_id: recovery.submission_id,
+        rubric_version_id: rubricID,
+        expected_submission_revision: recovery.submission_revision,
+        expected_task_version: current.version,
+      },
+    });
+    setSubmissionID(recovery.submission_id);
+    localStorage.removeItem(draftKey);
+    await pollReview(current.id, signal);
+  }
+
+  async function restoreReview(current: DailyTask, signal?: AbortSignal) {
+    try {
+      setError("");
+      const recovery = current.review_recovery;
+      const reviewID = current.current_review_id ?? recovery?.review_id;
+      if (reviewID) {
+        await finishReview(current, reviewID, signal);
+        return;
+      }
+      if (!recovery) throw new Error("submission_recovery_unavailable");
+      setSubmissionID(recovery.submission_id);
+      setTaskVersion(current.version);
+      setTaskStatus(current.status);
+      if (recovery.generation_status === "generating") {
+        await pollReview(current.id, signal);
+        return;
+      }
+      if (recovery.generation_status === "failed" || recovery.generation_status === "superseded") {
+        throw new Error(recovery.failure_reason ? `review_${recovery.failure_reason}` : `review_${recovery.generation_status}`);
+      }
+      if (!recovery.generation_id && current.status === "submitted") {
+        await admitReview(current, recovery, signal);
+        return;
+      }
+      throw new Error("review_recovery_state_invalid");
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      setError(cause instanceof Error ? cause.message : "review_recovery_failed");
+      setPhase("error");
+    }
+  }
+
+  async function retryReview() {
+    if (!task) return;
+    setError("");
+    setPhase("submitting");
+    try {
+      const current = await readTask(task.id);
+      if (!current) throw new Error("daily_task_not_found");
+      const reviewID = current.current_review_id ?? current.review_recovery?.review_id;
+      if (reviewID) {
+        await finishReview(current, reviewID);
+        return;
+      }
+      const recovery = current.review_recovery;
+      if (!recovery) throw new Error("submission_recovery_unavailable");
+      if (recovery.generation_status === "generating") await pollReview(current.id);
+      else await admitReview(current, recovery);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "review_retry_failed");
+      setPhase("error");
+    }
+  }
+
+  useEffect(() => {
+    if (demoMode || workspace.loading || !task || !["submitted", "reviewing", "completed"].includes(task.status)) return;
+    const controller = new AbortController();
+    queueMicrotask(() => void restoreReview(task, controller.signal));
+    return () => controller.abort();
+  // The task identity/version is the server continuation token. Local phase is
+  // intentionally excluded so polling state cannot restart the recovery effect.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.id, task?.version, workspace.loading]);
+
   async function mutateTask(action: "start" | "lower_difficulty") {
     if (!task || !activeVersion) return;
     const result = await apiRequest<{ version: number; status: string }>(`/v1/daily-tasks/${task.id}`, { method: "PATCH", contentType: "application/vnd.lites.daily-task-update.v2+json", idempotencyKey: newIdempotencyKey(), ifMatch: `"${activeVersion}"`, body: { request_id: newIdempotencyKey(), action, expected_task_version: activeVersion, reschedule_for: "" } });
@@ -82,24 +207,10 @@ export function TaskWorkspace({ locale }: { locale: Locale }) {
         setPhase("reviewed"); localStorage.removeItem(draftKey); return;
       }
       if (!task) throw new Error("daily_task_required");
-      const rubric = workspace.missions.rubrics.find((item) => item.practice_kind === task.practice_kind);
-      if (!rubric) throw new Error("rubric_revision_unavailable");
       const submission = await apiRequest<{ id: string; submission_revision: number; daily_task_version: number }>("/v1/submissions", { method: "POST", contentType: "application/vnd.lites.submission-create.v2+json", idempotencyKey: newIdempotencyKey(), ifMatch: `"${activeVersion}"`, body: { request_id: newIdempotencyKey(), daily_task_id: task.id, submission_kind: task.practice_kind, content, understanding, expected_task_version: activeVersion } });
       setSubmissionID(submission.id); setTaskVersion(submission.daily_task_version); setTaskStatus("submitted");
-      const generation = await apiRequest<{ run_id: string }>("/v1/reviews", { method: "POST", contentType: "application/vnd.lites.review-generate.v2+json", idempotencyKey: newIdempotencyKey(), ifMatch: `"${submission.daily_task_version}"`, body: { request_id: newIdempotencyKey(), submission_id: submission.id, rubric_version_id: rubric.id, expected_submission_revision: submission.submission_revision, expected_task_version: submission.daily_task_version } });
-      setPhase("queued"); localStorage.removeItem(draftKey);
-      for (let attempt = 0; attempt < 120; attempt += 1) {
-        const taskList = await apiRequest<{ items: DailyTask[] }>("/v1/daily-tasks", { accept: "application/vnd.lites.daily-tasks.v2+json" });
-        const updated = taskList.items.find((item) => item.id === task.id);
-        if (updated?.current_review_id) {
-          const completed = await apiRequest<ReviewResource>(`/v1/reviews/${updated.current_review_id}`, { accept: "application/vnd.lites.review.v2+json" });
-          setReview(completed); setTaskVersion(updated.version); setTaskStatus(updated.status); setPhase("reviewed"); return;
-        }
-        const run = await apiRequest<{ status: string }>(`/v1/runs/${generation.run_id}`);
-        if (["failed", "cancelled", "expired"].includes(run.status)) throw new Error(`review_${run.status}`);
-        await new Promise((resolve) => window.setTimeout(resolve, 1500));
-      }
-      throw new Error("review_timeout");
+      const recovery: ReviewRecovery = { submission_id: submission.id, submission_revision: submission.submission_revision, generation_id: null, run_id: null, rubric_version_id: null, generation_status: null, review_id: null, evidence_id: null, failure_reason: null, generation_created_at: null, generation_updated_at: null, generation_completed_at: null };
+      await admitReview({ ...task, version: submission.daily_task_version, status: "submitted", current_submission_id: submission.id, review_recovery: recovery }, recovery);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "request_failed"); setPhase("error");
     }
@@ -118,7 +229,8 @@ export function TaskWorkspace({ locale }: { locale: Locale }) {
   }
 
   if (!demoMode && workspace.loading) return <div className="page-wrap"><section className="card">{zh ? "正在读取今日任务…" : "Loading today’s task…"}</section></div>;
-  if (!demoMode && !task) return <div className="page-wrap"><a href={`/${locale}/today`} className="inline-link"><ArrowLeft />{zh ? "返回今日" : "Back to Today"}</a><section className="card"><h1>{zh ? "没有可执行任务" : "No executable task"}</h1><p>{workspace.error || (zh ? "请先激活路线并等待 Daily Planner。" : "Activate a route and wait for Daily Planner first.")}</p></section></div>;
+  if (!demoMode && workspace.error && !task) return <div className="page-wrap"><WorkspaceLoadError locale={locale} message={workspace.error} loading={workspace.loading} onRetry={workspace.retry} /></div>;
+  if (!demoMode && !task) return <div className="page-wrap"><a href={`/${locale}/today`} className="inline-link"><ArrowLeft />{zh ? "返回今日" : "Back to Today"}</a><section className="card"><h1>{zh ? "没有可执行任务" : "No executable task"}</h1><p>{zh ? "请先激活路线并等待 Daily Planner。" : "Activate a route and wait for Daily Planner first."}</p><button type="button" className="button" onClick={() => void workspace.retry()}>{zh ? "重新读取" : "Reload tasks"}</button></section></div>;
 
   if (phase === "reviewed") {
     const document = review?.review;
@@ -132,6 +244,6 @@ export function TaskWorkspace({ locale }: { locale: Locale }) {
   return <div className="task-page"><aside className="task-brief"><a href={`/${locale}/today`} className="inline-link"><ArrowLeft />{zh ? "今日一步" : "Today"}</a><p className="eyebrow">{zh ? "任务简报" : "Task brief"}</p><h1>{title}</h1><p>{why}</p><div className="brief-block"><strong>{zh ? "完成标准" : "Definition of done"}</strong><p>{criterion}</p></div><div className="task-facts"><span><Clock3 /> {displayedMinutes} {zh ? "分钟" : "min"}</span><span><FileCode2 /> {demoMode ? (zh ? "代码或文字" : "Code or writing") : task?.practice_kind}</span></div><button className="button ghost difficulty-button" type="button" onClick={lowerDifficulty} disabled={easier}>{easier ? (zh ? "已调整为更容易" : "Adjusted to easier") : (zh ? "降低难度" : "Make this easier")}</button><div className="coach-nudge"><Sparkles /><p><strong>Coach</strong><br />{demoMode ? (zh ? "先写出允许的转换，再问谁拥有改变状态的权限。" : "Write allowed transitions first, then ask who owns the authority to change state.") : taskDocument?.explanation[0]?.content}</p></div></aside>
     <section className="task-editor" aria-labelledby="task-editor-title"><header><div><p className="section-label">Workspace</p><h2 id="task-editor-title">{zh ? "你的解答" : "Your response"}</h2></div><span className="draft-status"><CloudOff />{zh ? "本机草稿 · 自动保存" : "Device draft · autosaved"}</span></header>{restored && <div className="draft-restored" role="status">{zh ? "已恢复上次未提交的本机草稿。" : "Restored an unsubmitted draft from this device."}<button type="button" aria-label={zh ? "关闭草稿恢复提示" : "Dismiss draft restoration notice"} onClick={() => setRestored(false)}>×</button></div>}
       {!demoMode && activeStatus === "scheduled" && <section className="card"><p>{zh ? "开始后任务状态会由服务器确认，再开放提交。" : "Start the task to confirm server state before submission."}</p><button className="button primary" type="button" onClick={() => void beginTask()}>{zh ? "开始任务" : "Begin task"}</button></section>}
-      <form onSubmit={submit} className="task-form"><label className="field"><span>{zh ? "工作成果" : "Work output"}</span><textarea name="task-content" autoComplete="off" required data-testid="task-content" value={content} onChange={(event) => setContent(event.target.value)} placeholder={taskDocument?.practice.instructions ?? (zh ? "描述状态、允许的转换和拒绝规则…" : "Describe the states, allowed transitions, and rejection rules…")} /></label><label className="field"><span>{zh ? "你的理解" : "Your understanding"}</span><textarea name="understanding" autoComplete="off" required value={understanding} onChange={(event) => setUnderstanding(event.target.value)} placeholder={zh ? "说明你的关键判断、边界与权衡…" : "Explain your key judgment, boundaries, and trade-offs…"} /></label>{phase === "error" && <div className="submit-error" role="alert"><AlertCircle /> <span>{error}</span><button type="button" className="text-button" onClick={() => setPhase("work")}><RotateCcw />{zh ? "返回修改" : "Return to draft"}</button></div>}{phase === "queued" && <div className="queued-state" role="status" aria-live="polite"><LoaderCircle className="spinner-icon" /><div><strong>{zh ? "提交已确认，评审排队中" : "Submission confirmed; review is queued"}</strong><p>{zh ? `提交 ${submissionID} 已由服务器确认。` : `Submission ${submissionID} is server-confirmed.`}</p></div></div>}<footer><p>{zh ? "只有服务器确认后才算已提交。" : "Nothing is submitted until the server confirms it."}</p><button className="button primary" type="submit" disabled={!ready || phase === "submitting" || phase === "queued"}>{phase === "submitting" ? <><LoaderCircle className="spinner-icon" />{zh ? "正在确认…" : "Confirming…"}</> : <><Send />{zh ? "提交并请求评审" : "Submit for review"}</>}</button></footer></form>
+      <form onSubmit={submit} className="task-form"><label className="field"><span>{zh ? "工作成果" : "Work output"}</span><textarea name="task-content" autoComplete="off" required data-testid="task-content" value={content} onChange={(event) => setContent(event.target.value)} placeholder={taskDocument?.practice.instructions ?? (zh ? "描述状态、允许的转换和拒绝规则…" : "Describe the states, allowed transitions, and rejection rules…")} /></label><label className="field"><span>{zh ? "你的理解" : "Your understanding"}</span><textarea name="understanding" autoComplete="off" required value={understanding} onChange={(event) => setUnderstanding(event.target.value)} placeholder={zh ? "说明你的关键判断、边界与权衡…" : "Explain your key judgment, boundaries, and trade-offs…"} /></label>{phase === "error" && <div className="submit-error" role="alert"><AlertCircle /> <span>{error}</span>{activeStatus === "submitted" || activeStatus === "reviewing" ? <button type="button" className="text-button" onClick={() => void retryReview()}><RotateCcw />{zh ? "重试评审" : "Retry review"}</button> : <button type="button" className="text-button" onClick={() => setPhase("work")}><RotateCcw />{zh ? "返回修改" : "Return to draft"}</button>}</div>}{phase === "queued" && <div className="queued-state" role="status" aria-live="polite"><LoaderCircle className="spinner-icon" /><div><strong>{zh ? "提交已确认，评审排队中" : "Submission confirmed; review is queued"}</strong><p>{zh ? `提交 ${submissionID} 已由服务器确认；刷新后仍会从服务器继续。` : `Submission ${submissionID} is server-confirmed and will resume after refresh.`}</p></div></div>}<footer><p>{zh ? "只有服务器确认后才算已提交。" : "Nothing is submitted until the server confirms it."}</p><button className="button primary" type="submit" disabled={!ready || phase === "submitting" || phase === "queued"}>{phase === "submitting" ? <><LoaderCircle className="spinner-icon" />{zh ? "正在确认…" : "Confirming…"}</> : <><Send />{zh ? "提交并请求评审" : "Submit for review"}</>}</button></footer></form>
     </section></div>;
 }

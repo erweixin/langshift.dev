@@ -33,6 +33,7 @@ func TestSchedulerDispatchLeasesAreGlobalDurableAndRecoverable(t *testing.T) {
 	fixtures := []schedulerFixture{
 		{"4e000000-0000-4000-8000-000000000010", "4e000000-0000-4000-8000-000000000011", "4e000000-0000-4000-8000-000000000012", "4e000000-0000-4000-8000-000000000013", "4e000000-0000-4000-8000-000000000014"},
 		{"4e000000-0000-4000-8000-000000000020", "4e000000-0000-4000-8000-000000000021", "4e000000-0000-4000-8000-000000000022", "4e000000-0000-4000-8000-000000000023", "4e000000-0000-4000-8000-000000000024"},
+		{"4e000000-0000-4000-8000-000000000030", "4e000000-0000-4000-8000-000000000031", "4e000000-0000-4000-8000-000000000032", "4e000000-0000-4000-8000-000000000033", "4e000000-0000-4000-8000-000000000034"},
 	}
 	accepted := make(map[string]AcceptedRun, len(fixtures))
 	commands := make(map[string]AcceptRunCommand, len(fixtures))
@@ -54,7 +55,7 @@ func TestSchedulerDispatchLeasesAreGlobalDurableAndRecoverable(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	config := scheduler.Config{Resources: map[string]scheduler.ResourcePolicy{"llm": {Capacity: 2, InteractiveReserved: 1, BackgroundReserved: 0, HighPriorityThreshold: 90, HighPriorityMaxPercentage: 50, QuantumUnits: 1}}, DefaultTenant: scheduler.TenantPolicy{Weight: 1, ActiveConcurrencyCap: 2, BurstUnits: 10, RefillUnitsPerSecond: 10}, Tenants: map[string]scheduler.TenantPolicy{}, BatchLimit: 2}
+	config := scheduler.Config{Resources: map[string]scheduler.ResourcePolicy{"llm": {Capacity: 3, InteractiveReserved: 1, BackgroundReserved: 0, HighPriorityThreshold: 90, HighPriorityMaxPercentage: 50, QuantumUnits: 1}}, DefaultTenant: scheduler.TenantPolicy{Weight: 1, ActiveConcurrencyCap: 2, BurstUnits: 10, RefillUnitsPerSecond: 10}, Tenants: map[string]scheduler.TenantPolicy{}, BatchLimit: 3}
 	store := SchedulerStore{Pool: schedulerPool, Epochs: executionEpochStub{epoch: storeEpoch}, ResourceTokens: opaque.Manager{Purpose: "scheduler-resource", Pepper: bytes.Repeat([]byte{0x83}, 32)}, DispatchTokens: opaque.Manager{Purpose: "scheduler-dispatch", Pepper: bytes.Repeat([]byte{0x84}, 32)}, ResourceLeaseTTL: time.Minute, DispatchLeaseTTL: 30 * time.Second, RedeliveryDelay: time.Minute, RetryDelay: 10 * time.Second, Now: func() time.Time { return now }}
 
 	resourceClaim, err := store.claimResource(ctx, config, "llm", "scheduler-a", storeEpoch)
@@ -65,14 +66,14 @@ func TestSchedulerDispatchLeasesAreGlobalDurableAndRecoverable(t *testing.T) {
 		t.Fatalf("concurrent resource claim: %v", err)
 	}
 	candidates, err := store.listCandidates(ctx, resourceClaim, 10)
-	if err != nil || len(candidates) != 2 {
+	if err != nil || len(candidates) != 3 {
 		t.Fatalf("candidates=%d error=%v", len(candidates), err)
 	}
 	if err = store.abortResource(ctx, resourceClaim); err != nil {
 		t.Fatal(err)
 	}
 	dispatches, err := store.PlanResource(ctx, config, scheduler.Active{}, "llm", "scheduler-a", storeEpoch, 10)
-	if err != nil || len(dispatches) != 2 {
+	if err != nil || len(dispatches) != 3 {
 		t.Fatalf("dispatches=%d error=%v", len(dispatches), err)
 	}
 	var invisible int
@@ -84,7 +85,7 @@ func TestSchedulerDispatchLeasesAreGlobalDurableAndRecoverable(t *testing.T) {
 		t.Fatalf("leased jobs redispatched=%d error=%v", len(empty), err)
 	}
 
-	first, second := dispatches[0], dispatches[1]
+	first, second, third := dispatches[0], dispatches[1], dispatches[2]
 	wrong := first
 	wrong.LeaseToken = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	if err = store.MarkDispatched(ctx, wrong); !errors.Is(err, ErrSchedulerConflict) {
@@ -104,27 +105,36 @@ func TestSchedulerDispatchLeasesAreGlobalDurableAndRecoverable(t *testing.T) {
 	if err = store.MarkDispatched(ctx, first); err != nil {
 		t.Fatalf("broker ACK after worker claim: %v", err)
 	}
-	if err = store.DeferDispatch(ctx, second, "broker_unavailable"); err != nil {
+	if err = store.MarkDispatched(ctx, second); err != nil {
+		t.Fatalf("broker ACK before worker claim: %v", err)
+	}
+	secondFixture := fixtureByTenant(fixtures, second.Candidate.TenantID)
+	secondAccepted := accepted[secondFixture.run]
+	workerAfterACK, err := runStore.ClaimStart(ctx, ClaimRunCommand{Command: second.Candidate.Command.Delivered(), ConsumerName: "agent-run-worker", WorkerID: "worker-after-broker-ack", Actor: json.RawMessage(`{"kind":"service"}`), CorrelationID: secondFixture.correlation, RunEvent: PayloadPointer{Ref: "encrypted://scheduler/run-started-after-ack", Hash: "run-started-after-ack"}, AttemptStartedEvent: PayloadPointer{Ref: "encrypted://scheduler/attempt-started-after-ack", Hash: "attempt-started-after-ack"}, AttemptExpiredEvent: PayloadPointer{Ref: "encrypted://scheduler/attempt-expired-after-ack", Hash: "attempt-expired-after-ack"}})
+	if err != nil || workerAfterACK.JobID != secondAccepted.StartJobID {
+		t.Fatalf("worker after broker ACK claim=%#v error=%v", workerAfterACK, err)
+	}
+	if err = store.DeferDispatch(ctx, third, "broker_unavailable"); err != nil {
 		t.Fatal(err)
 	}
-	var firstStatus, secondStatus, secondError string
-	var firstLeaseCleared, secondLeaseCleared bool
-	var secondAvailable time.Time
-	if err = admin.QueryRow(ctx, `SELECT a.status,a.dispatch_lease_hash IS NULL,b.status,b.dispatch_lease_hash IS NULL,b.available_at,b.last_error_code FROM agent.jobs a JOIN agent.jobs b ON b.id=$2 WHERE a.id=$1`, first.Candidate.ID, second.Candidate.ID).Scan(&firstStatus, &firstLeaseCleared, &secondStatus, &secondLeaseCleared, &secondAvailable, &secondError); err != nil {
+	var firstStatus, deferredStatus, deferredError string
+	var firstLeaseCleared, deferredLeaseCleared bool
+	var deferredAvailable time.Time
+	if err = admin.QueryRow(ctx, `SELECT a.status,a.dispatch_lease_hash IS NULL,b.status,b.dispatch_lease_hash IS NULL,b.available_at,b.last_error_code FROM agent.jobs a JOIN agent.jobs b ON b.id=$2 WHERE a.id=$1`, first.Candidate.ID, third.Candidate.ID).Scan(&firstStatus, &firstLeaseCleared, &deferredStatus, &deferredLeaseCleared, &deferredAvailable, &deferredError); err != nil {
 		t.Fatal(err)
 	}
-	if firstStatus != "running" || !firstLeaseCleared || secondStatus != "pending" || !secondLeaseCleared || !secondAvailable.Equal(now.Add(store.RetryDelay)) || secondError != "broker_unavailable" {
-		t.Fatalf("first=%s/%v second=%s/%v available=%s error=%s", firstStatus, firstLeaseCleared, secondStatus, secondLeaseCleared, secondAvailable, secondError)
+	if firstStatus != "running" || !firstLeaseCleared || deferredStatus != "pending" || !deferredLeaseCleared || !deferredAvailable.Equal(now.Add(store.RetryDelay)) || deferredError != "broker_unavailable" {
+		t.Fatalf("first=%s/%v deferred=%s/%v available=%s error=%s", firstStatus, firstLeaseCleared, deferredStatus, deferredLeaseCleared, deferredAvailable, deferredError)
 	}
 
-	now = secondAvailable.Add(time.Microsecond)
+	now = deferredAvailable.Add(time.Microsecond)
 	crashed, err := store.PlanResource(ctx, config, scheduler.Active{}, "llm", "scheduler-crashed", storeEpoch, 10)
-	if err != nil || len(crashed) != 1 || crashed[0].Candidate.ID != second.Candidate.ID {
+	if err != nil || len(crashed) != 1 || crashed[0].Candidate.ID != third.Candidate.ID {
 		t.Fatalf("crashed dispatch=%#v error=%v", crashed, err)
 	}
 	now = crashed[0].LeaseExpiresAt.Add(time.Microsecond)
 	recovered, err := store.PlanResource(ctx, config, scheduler.Active{}, "llm", "scheduler-recovery", storeEpoch, 10)
-	if err != nil || len(recovered) != 1 || recovered[0].Candidate.ID != second.Candidate.ID || recovered[0].Candidate.DispatchVersion != crashed[0].Candidate.DispatchVersion+1 {
+	if err != nil || len(recovered) != 1 || recovered[0].Candidate.ID != third.Candidate.ID || recovered[0].Candidate.DispatchVersion != crashed[0].Candidate.DispatchVersion+1 {
 		t.Fatalf("recovered dispatch=%#v error=%v", recovered, err)
 	}
 	if err = store.MarkDispatched(ctx, crashed[0]); !errors.Is(err, ErrSchedulerConflict) {

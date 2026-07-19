@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildDeploymentReport, validateDeploymentRecords } from "./write-stage6-deployment-report.mjs";
+import { buildDeploymentReport, currentMigration, validateDeploymentRecords } from "./write-stage6-deployment-report.mjs";
 
 const sourceCommit = "a".repeat(40);
 const rcHash = "b".repeat(64);
@@ -9,7 +9,7 @@ const uuid = (value) => `00000000-0000-4000-8000-${String(value).padStart(12, "0
 const records = operations.flatMap((operation, operationIndex) => [1, 2, 3].map((attempt) => {
   const index = operationIndex * 3 + attempt;
   const restore = operation === "restore";
-  const schemas = { freshInstall: [0, 84], upgrade: [83, 84], backup: [84, 84], restore: [84, 84], rollback: [84, 84] }[operation];
+  const schemas = { freshInstall: [0, currentMigration], upgrade: [currentMigration - 1, currentMigration], backup: [currentMigration, currentMigration], restore: [currentMigration, currentMigration], rollback: [currentMigration, currentMigration] }[operation];
   return {
     schemaVersion: "1.0.0", target, operation, attempt, status: "passed", runId: uuid(index), sourceCommit, rcHash,
     environmentFingerprint: "c".repeat(64), transcriptSha256: "d".repeat(64), stateBeforeSha256: "e".repeat(64), stateAfterSha256: "f".repeat(64),

@@ -151,12 +151,13 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 			}
 			return configuration.trustedAudience
 		},
-		TTL:               configuration.trustedContextTTL,
-		CSRFPepper:        secrets.CSRFPepper,
-		AnonymousCSRFKey:  secrets.AnonymousCSRFKey,
-		FingerprintPepper: secrets.FingerprintPepper,
-		PublicOrigins:     configuration.publicOrigins,
-		RoutePolicy:       gateway.IdentityRoutePolicy,
+		TTL:                          configuration.trustedContextTTL,
+		CSRFPepper:                   secrets.CSRFPepper,
+		AnonymousCSRFKey:             secrets.AnonymousCSRFKey,
+		FingerprintPepper:            secrets.FingerprintPepper,
+		PublicOrigins:                configuration.publicOrigins,
+		AllowInsecureLoopbackOrigins: configuration.allowInsecureDevelopment && configuration.environment == "engineering-test",
+		RoutePolicy:                  gateway.IdentityRoutePolicy,
 	}
 	telemetry, err := observability.New(ctx, observability.Config{ServiceName: "api-gateway", ServiceVersion: configuration.serviceVersion, Environment: configuration.environment, Region: configuration.region, OTLPEndpoint: configuration.otlpEndpoint, OTLPRootCAFile: configuration.otlpCAFile, OTLPClientCertificateFile: configuration.otlpCertFile, OTLPClientKeyFile: configuration.otlpKeyFile, OTLPTLSServerName: configuration.otlpTLSName, OTLPBearerTokenFile: configuration.otlpBearerTokenFile, TraceSampleRatio: configuration.traceSampleRatio, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
 	if err != nil {
@@ -298,7 +299,7 @@ func isContractRoute(path string) bool {
 var gatewayUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func isProductRoute(path string) bool {
-	if path == "/v1/public/status" || path == "/v1/catalog/roles" || path == "/v1/missions" || path == "/v1/route-revisions" || path == "/v1/daily-tasks" || path == "/v1/submissions" || path == "/v1/reviews" || path == "/v1/capability-evidence" || path == "/v1/preferences" || path == "/v1/reminder-schedules" || path == "/v1/projects" || path == "/v1/artifacts" || path == "/v1/portfolio-exports" || path == "/v1/share-grants" || path == "/v1/support/cases" || path == "/v1/admin/aggregate-queries" || path == "/v1/admin/programs" || path == "/v1/admin/cohorts" || path == "/v1/admin/role-packs" || path == "/v1/admin/task-packs" {
+	if path == "/v1/public/status" || path == "/v1/catalog/roles" || path == "/v1/missions" || path == "/v1/route-revisions" || path == "/v1/daily-tasks" || path == "/v1/submissions" || path == "/v1/reviews" || path == "/v1/capability-evidence" || path == "/v1/capability-claims" || path == "/v1/preferences" || path == "/v1/byok-credentials" || path == "/v1/memory-policy" || path == "/v1/reminder-schedules" || path == "/v1/projects" || path == "/v1/artifacts" || path == "/v1/portfolio-exports" || path == "/v1/share-grants" || path == "/v1/support/cases" || path == "/v1/admin/aggregate-snapshots" || path == "/v1/admin/aggregate-queries" || path == "/v1/admin/programs" || path == "/v1/admin/cohorts" || path == "/v1/admin/role-packs" || path == "/v1/admin/task-packs" {
 		return true
 	}
 	if strings.HasPrefix(path, "/v1/missions/") {
@@ -308,6 +309,13 @@ func isProductRoute(path string) bool {
 	if strings.HasPrefix(path, "/v1/route-revisions/") {
 		parts := strings.Split(strings.TrimPrefix(path, "/v1/route-revisions/"), "/")
 		return len(parts) == 2 && gatewayUUIDPattern.MatchString(parts[0]) && parts[1] == "accept"
+	}
+	if strings.HasPrefix(path, "/v1/capability-claims/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/v1/capability-claims/"), "/")
+		return len(parts) == 2 && gatewayUUIDPattern.MatchString(parts[0]) && parts[1] == "revisions"
+	}
+	if strings.HasPrefix(path, "/v1/byok-credentials/") {
+		return gatewayUUIDPattern.MatchString(strings.TrimPrefix(path, "/v1/byok-credentials/"))
 	}
 	if strings.HasPrefix(path, "/v1/daily-tasks/") {
 		id := strings.TrimPrefix(path, "/v1/daily-tasks/")

@@ -73,6 +73,16 @@ type VerifyEmailResult struct {
 	VerifiedAt time.Time
 }
 
+type ResendVerificationCommand struct {
+	RequestMetadata
+	NormalizedEmail string
+}
+
+type ResendVerificationResult struct {
+	Status        string    `json:"status"`
+	NextAllowedAt time.Time `json:"next_allowed_at"`
+}
+
 type LoginCommand struct {
 	RequestMetadata
 	NormalizedEmail string
@@ -90,6 +100,7 @@ type LoginResult struct {
 type Service interface {
 	Register(context.Context, RegisterCommand) (RegisterResult, error)
 	VerifyEmail(context.Context, VerifyEmailCommand) (VerifyEmailResult, error)
+	ResendVerification(context.Context, ResendVerificationCommand) (ResendVerificationResult, error)
 	Login(context.Context, LoginCommand) (LoginResult, error)
 }
 
@@ -103,6 +114,7 @@ type Handler struct {
 	Passwords   PasswordService
 	Emails      EmailService
 	Accounts    AccountService
+	Tenants     TenantService
 	Invitations InvitationService
 	Memberships MembershipService
 	Onboarding  OnboardingService
@@ -145,6 +157,12 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		handler.verifyEmail(writer, request)
+	case "/v1/auth/resend-verification":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(writer, request, http.MethodPost)
+			return
+		}
+		handler.resendVerification(writer, request)
 	case "/v1/auth/login":
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(writer, request, http.MethodPost)
@@ -205,6 +223,14 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		handler.accountErasureCreate(writer, request)
+	case "/v1/account":
+		handler.account(writer, request)
+	case "/v1/tenants":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(writer, request, http.MethodGet)
+			return
+		}
+		handler.tenantList(writer, request)
 	case "/v1/invitations":
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(writer, request, http.MethodPost)
@@ -244,7 +270,31 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 		default:
 			handler.methodNotAllowed(writer, request, http.MethodGet, http.MethodDelete)
 		}
+	case "/v1/auth/session/active-tenant":
+		if request.Method != http.MethodPut {
+			handler.methodNotAllowed(writer, request, http.MethodPut)
+			return
+		}
+		handler.switchActiveTenant(writer, request)
 	default:
+		if strings.HasPrefix(request.URL.Path, "/v1/account/export-requests/") {
+			remainder := strings.TrimPrefix(request.URL.Path, "/v1/account/export-requests/")
+			if strings.HasSuffix(remainder, "/download") {
+				exportID := strings.TrimSuffix(remainder, "/download")
+				if request.Method != http.MethodGet || exportID == "" || strings.Contains(exportID, "/") {
+					handler.methodNotAllowed(writer, request, http.MethodGet)
+					return
+				}
+				handler.accountExportDownload(writer, request, exportID)
+				return
+			}
+			if request.Method != http.MethodGet || remainder == "" || strings.Contains(remainder, "/") {
+				handler.methodNotAllowed(writer, request, http.MethodGet)
+				return
+			}
+			handler.accountExportGet(writer, request, remainder)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/v1/onboarding-sessions/") && strings.HasSuffix(request.URL.Path, "/route-preview") {
 			if request.Method != http.MethodPost {
 				handler.methodNotAllowed(writer, request, http.MethodPost)
@@ -254,11 +304,14 @@ func (handler Handler) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		if strings.HasPrefix(request.URL.Path, "/v1/onboarding-sessions/") && !strings.Contains(strings.TrimPrefix(request.URL.Path, "/v1/onboarding-sessions/"), "/") {
-			if request.Method != http.MethodGet {
-				handler.methodNotAllowed(writer, request, http.MethodGet)
-				return
+			switch request.Method {
+			case http.MethodGet:
+				handler.onboardingRouteGet(writer, request)
+			case http.MethodPatch:
+				handler.onboardingUpdate(writer, request)
+			default:
+				handler.methodNotAllowed(writer, request, http.MethodGet, http.MethodPatch)
 			}
-			handler.onboardingRouteGet(writer, request)
 			return
 		}
 		if strings.HasPrefix(request.URL.Path, "/v1/onboarding-sessions/") && strings.HasSuffix(request.URL.Path, "/claim") {
@@ -590,7 +643,9 @@ func (handler Handler) writeProblem(writer http.ResponseWriter, request *http.Re
 
 func (handler Handler) writeJSON(writer http.ResponseWriter, status int, value any) {
 	writer.Header().Set("Content-Type", "application/json")
-	writer.Header().Set("Cache-Control", "no-store")
+	if writer.Header().Get("Cache-Control") == "" {
+		writer.Header().Set("Cache-Control", "no-store")
+	}
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	writer.WriteHeader(status)
 	_ = json.NewEncoder(writer).Encode(value)

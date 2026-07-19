@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   ArrowRight,
@@ -18,9 +19,11 @@ import {
 } from "lucide-react";
 import type { Locale } from "@/i18n/config";
 import { apiDownload, apiRequest, newIdempotencyKey } from "@/lib/api/client";
+import type { components } from "@/lib/api/schema";
 
 type ProjectKind = "code" | "writing" | "design";
 type Phase =
+  | "restoring"
   | "brief"
   | "plan"
   | "provisioning"
@@ -32,10 +35,11 @@ type Phase =
 type ProjectState = {
   id: string;
   version: number;
+  status: components["schemas"]["ProjectResourceV2"]["status"];
   workspaceID: string;
   workspaceVersion: number;
   workspaceRevision: string;
-  milestones: { id: string; version: number; status: string; title: string }[];
+  milestones: components["schemas"]["ProjectMilestoneResourceV2"][];
   currentMilestone: number;
   evidenceIDs: string[];
   outputs: string[];
@@ -43,6 +47,7 @@ type ProjectState = {
   artifactVersion?: number;
   artifactRevisionIDs: string[];
 };
+type ProjectDetail = components["schemas"]["ProjectDetailResourceV2"];
 type Evidence = {
   id: string;
   version: number;
@@ -51,15 +56,7 @@ type Evidence = {
     evaluation?: { result?: string; summary?: string; uncertainty?: string };
   };
 };
-type ExportState = {
-  id: string;
-  status: string;
-  version: number;
-  content_hash: string | null;
-  media_type: string | null;
-  byte_size: number | null;
-  failure_code: string | null;
-};
+type ExportState = components["schemas"]["ProjectExportResourceV2"];
 
 const formats: {
   id: ProjectKind;
@@ -99,9 +96,13 @@ async function inlineRevision(content: string) {
 export function CreateStudio({ locale }: { locale: Locale }) {
   const zh = locale === "zh-CN";
   const demo = process.env.NEXT_PUBLIC_LITES_DEMO_MODE === "true";
+  const searchParams = useSearchParams();
+  const requestedProjectID = searchParams.get("project");
   const [selected, setSelected] = useState<ProjectKind>("code");
   const [brief, setBrief] = useState("");
-  const [phase, setPhase] = useState<Phase>("brief");
+  const [phase, setPhase] = useState<Phase>(
+    requestedProjectID && !demo ? "restoring" : "brief",
+  );
   const [deliverable, setDeliverable] = useState("");
   const [revisionNote, setRevisionNote] = useState("");
   const [reflection, setReflection] = useState("");
@@ -112,6 +113,129 @@ export function CreateStudio({ locale }: { locale: Locale }) {
     null,
   );
   const [downloading, setDownloading] = useState(false);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!requestedProjectID || demo) return;
+    let cancelled = false;
+    void apiRequest<ProjectDetail>(
+      `/v1/projects/${encodeURIComponent(requestedProjectID)}`,
+      { accept: "application/vnd.lites.project-detail.v2+json" },
+    )
+      .then((detail) => {
+        if (cancelled) return;
+        const firstIncomplete = detail.milestones.findIndex(
+          (milestone) => milestone.status !== "completed",
+        );
+        const currentMilestone =
+          firstIncomplete >= 0
+            ? firstIncomplete
+            : Math.max(0, detail.milestones.length - 1);
+        const artifact =
+          detail.artifacts.find((item) => item.status !== "archived") ??
+          detail.artifacts[0];
+        const state: ProjectState = {
+          id: detail.project.id,
+          version: detail.project.version,
+          status: detail.project.status,
+          workspaceID: detail.workspace?.id ?? "",
+          workspaceVersion: detail.workspace?.version ?? 0,
+          workspaceRevision: detail.workspace?.head_revision ?? "",
+          milestones: detail.milestones,
+          currentMilestone,
+          evidenceIDs: [
+            ...new Set(
+              detail.milestones.flatMap((milestone) =>
+                milestone.evidence_ids,
+              ),
+            ),
+          ],
+          outputs: detail.milestones.flatMap((milestone) =>
+            milestone.result ? [milestone.result] : [],
+          ),
+          artifactID: artifact?.id,
+          artifactVersion: artifact?.version,
+          artifactRevisionIDs: detail.artifacts.flatMap(
+            (item) => item.artifact_revision_ids,
+          ),
+        };
+        setSelected(detail.project.project_kind);
+        setBrief(detail.brief);
+        setProject(state);
+        setDeliverable(
+          detail.milestones[currentMilestone]?.result ?? "",
+        );
+        setPortfolioExport(detail.latest_export);
+        if (
+          detail.project.status === "completed" ||
+          detail.project.status === "archived"
+        ) {
+          setPhase("complete");
+        } else if (
+          detail.artifacts.some((item) => item.current_revision > 0)
+        ) {
+          setPhase("reflection");
+        } else if (
+          detail.milestones.length >= 2 &&
+          detail.milestones.every(
+            (milestone) => milestone.status === "completed",
+          )
+        ) {
+          setPhase("evidence");
+        } else if (detail.workspace && detail.milestones.length > 0) {
+          setPhase("workspace");
+        } else {
+          setPhase("plan");
+        }
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setError(
+          cause instanceof Error ? cause.message : "project_restore_failed",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, requestedProjectID, restoreAttempt]);
+
+  const pendingExportID =
+    phase === "complete" &&
+    portfolioExport &&
+    ["requested", "building"].includes(portfolioExport.status)
+      ? portfolioExport.id
+      : null;
+  useEffect(() => {
+    if (!pendingExportID || demo) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        for (let attempt = 0; attempt < 180 && !cancelled; attempt += 1) {
+          await delay(1000);
+          const current = await apiRequest<ExportState>(
+            `/v1/portfolio-exports/${pendingExportID}`,
+            { accept: "application/vnd.lites.portfolio-export.v2+json" },
+          );
+          if (cancelled) return;
+          setPortfolioExport(current);
+          if (current.status === "ready") return;
+          if (["failed", "expired"].includes(current.status))
+            throw new Error(
+              current.failure_code ?? `export_${current.status}`,
+            );
+        }
+        if (!cancelled) throw new Error("export_timeout");
+      } catch (cause) {
+        if (!cancelled)
+          setError(
+            cause instanceof Error ? cause.message : "portfolio_export_failed",
+          );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, pendingExportID]);
 
   const milestones =
     selected === "design"
@@ -148,6 +272,7 @@ export function CreateStudio({ locale }: { locale: Locale }) {
         setProject({
           id: "demo-project",
           version: 4,
+          status: "active",
           workspaceID: "demo-workspace",
           workspaceVersion: 1,
           workspaceRevision: "demo:workspace:initial",
@@ -155,8 +280,16 @@ export function CreateStudio({ locale }: { locale: Locale }) {
             {
               id: "demo-milestone-1",
               version: 1,
+              sequence: 1,
+              required: true,
               status: "planned",
               title: milestones[0] ?? "Required milestone",
+              result: null,
+              verification_test_run_id: null,
+              evidence_ids: [],
+              latest_evaluation: null,
+              completed_at: null,
+              updated_at: new Date().toISOString(),
             },
           ],
           currentMilestone: 0,
@@ -167,61 +300,106 @@ export function CreateStudio({ locale }: { locale: Locale }) {
         setPhase("workspace");
         return;
       }
-      const missions = await apiRequest<{
-        items: {
-          id: string;
-          current_route_revision_id: string | null;
-          focused: boolean;
-        }[];
-        focus: { mission_id: string | null };
-      }>("/v1/missions");
-      const mission =
-        missions.items.find((item) => item.id === missions.focus.mission_id) ??
-        missions.items.find((item) => item.focused);
-      if (!mission?.current_route_revision_id)
-        throw new Error("accepted_route_required");
-      const created = await apiRequest<{ id: string; version: number }>(
-        "/v1/projects",
-        {
+      let durable = project;
+      if (!durable) {
+        const missions = await apiRequest<{
+          items: {
+            id: string;
+            current_route_revision_id: string | null;
+            focused: boolean;
+          }[];
+          focus: { mission_id: string | null };
+        }>("/v1/missions");
+        const mission =
+          missions.items.find(
+            (item) => item.id === missions.focus.mission_id,
+          ) ?? missions.items.find((item) => item.focused);
+        if (!mission?.current_route_revision_id)
+          throw new Error("accepted_route_required");
+        const created = await apiRequest<{ id: string; version: number }>(
+          "/v1/projects",
+          {
+            method: "POST",
+            idempotencyKey: newIdempotencyKey(),
+            contentType: "application/vnd.lites.project-create.v2+json",
+            body: {
+              request_id: newIdempotencyKey(),
+              mission_id: mission.id,
+              accepted_route_revision_id: mission.current_route_revision_id,
+              project_kind: selected,
+              title: brief.trim().slice(0, 120),
+              brief: brief.trim(),
+            },
+          },
+        );
+        durable = {
+          id: created.id,
+          version: created.version,
+          status: "active",
+          workspaceID: "",
+          workspaceVersion: 0,
+          workspaceRevision: "",
+          milestones: [],
+          currentMilestone: 0,
+          evidenceIDs: [],
+          outputs: [],
+          artifactRevisionIDs: [],
+        };
+        setProject(durable);
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `/${locale}/create?project=${encodeURIComponent(created.id)}`,
+        );
+      }
+      let version = durable.version;
+      let bindingID = durable.workspaceID;
+      let bindingVersion = durable.workspaceVersion;
+      let workspaceRevision = durable.workspaceRevision;
+      if (!bindingID) {
+        const workspaceID = crypto.randomUUID();
+        const baseRevision = `inline:${workspaceID}:empty`;
+        const bound = await apiRequest<{
+          version: number;
+          workspace: { id: string; version: number; head_revision: string };
+        }>(`/v1/projects/${durable.id}/workspace`, {
           method: "POST",
           idempotencyKey: newIdempotencyKey(),
-          contentType: "application/vnd.lites.project-create.v2+json",
+          ifMatch: `"${version}"`,
+          contentType: "application/vnd.lites.project-workspace-bind.v2+json",
           body: {
             request_id: newIdempotencyKey(),
-            mission_id: mission.id,
-            accepted_route_revision_id: mission.current_route_revision_id,
-            project_kind: selected,
-            title: brief.trim().slice(0, 120),
-            brief: brief.trim(),
+            workspace_id: workspaceID,
+            branch_name: `project/${durable.id.slice(0, 12)}`,
+            base_revision: baseRevision,
+            expected_project_version: version,
           },
-        },
-      );
-      const workspaceID = crypto.randomUUID();
-      const baseRevision = `inline:${workspaceID}:empty`;
-      const bound = await apiRequest<{
-        version: number;
-        workspace: { id: string; version: number; head_revision: string };
-      }>(`/v1/projects/${created.id}/workspace`, {
-        method: "POST",
-        idempotencyKey: newIdempotencyKey(),
-        ifMatch: `"${created.version}"`,
-        contentType: "application/vnd.lites.project-workspace-bind.v2+json",
-        body: {
-          request_id: newIdempotencyKey(),
-          workspace_id: workspaceID,
-          branch_name: `project/${created.id.slice(0, 12)}`,
-          base_revision: baseRevision,
-          expected_project_version: created.version,
-        },
-      });
-      let version = bound.version;
-      const createdMilestones: ProjectState["milestones"] = [];
+        });
+        version = bound.version;
+        bindingID = bound.workspace.id;
+        bindingVersion = bound.workspace.version;
+        workspaceRevision = bound.workspace.head_revision;
+        durable = {
+          ...durable,
+          version,
+          workspaceID: bindingID,
+          workspaceVersion: bindingVersion,
+          workspaceRevision,
+        };
+        setProject(durable);
+      }
+      const createdMilestones: ProjectState["milestones"] = [
+        ...durable.milestones,
+      ];
       for (const [index, title] of milestones.entries()) {
+        if (createdMilestones.some((item) => item.sequence === index + 1))
+          continue;
         const milestone = await apiRequest<{
           version: number;
           milestone_id: string;
           milestone_version: number;
-        }>(`/v1/projects/${created.id}/milestones`, {
+          updated_at: string;
+        }>(`/v1/projects/${durable.id}/milestones`, {
           method: "POST",
           idempotencyKey: newIdempotencyKey(),
           ifMatch: `"${version}"`,
@@ -243,23 +421,30 @@ export function CreateStudio({ locale }: { locale: Locale }) {
         createdMilestones.push({
           id: milestone.milestone_id,
           version: milestone.milestone_version,
+          sequence: index + 1,
+          required: true,
           status: "planned",
           title,
+          result: null,
+          verification_test_run_id: null,
+          evidence_ids: [],
+          latest_evaluation: null,
+          completed_at: null,
+          updated_at: milestone.updated_at,
         });
+        durable = { ...durable, version, milestones: createdMilestones };
+        setProject(durable);
       }
       if (createdMilestones.length !== milestones.length)
         throw new Error("milestone_creation_failed");
       setProject({
-        id: created.id,
+        ...durable,
         version,
-        workspaceID: bound.workspace.id,
-        workspaceVersion: bound.workspace.version,
-        workspaceRevision: bound.workspace.head_revision,
+        workspaceID: bindingID,
+        workspaceVersion: bindingVersion,
+        workspaceRevision,
         milestones: createdMilestones,
         currentMilestone: 0,
-        evidenceIDs: [],
-        outputs: [],
-        artifactRevisionIDs: [],
       });
       setPhase("workspace");
     } catch (cause) {
@@ -291,107 +476,231 @@ export function CreateStudio({ locale }: { locale: Locale }) {
       const milestone = project.milestones[project.currentMilestone];
       if (!milestone) throw new Error("milestone_not_available");
       const nextRevision = await inlineRevision(deliverable.trim());
-      if (nextRevision === project.workspaceRevision)
-        throw new Error("workspace_revision_unchanged");
-      const advanced = await apiRequest<{
-        version: number;
-        workspace: { id: string; version: number; head_revision: string };
-      }>(`/v1/projects/${project.id}/workspace`, {
-        method: "PATCH",
-        idempotencyKey: newIdempotencyKey(),
-        ifMatch: `"${project.version}"`,
-        contentType: "application/vnd.lites.project-workspace-advance.v2+json",
-        body: {
-          request_id: newIdempotencyKey(),
-          binding_id: project.workspaceID,
-          expected_head_revision: project.workspaceRevision,
-          head_revision: nextRevision,
-          expected_project_version: project.version,
-          expected_binding_version: project.workspaceVersion,
-        },
-      });
-      const started = await apiRequest<{
-        version: number;
-        milestone_version: number;
-        milestone_status: string;
-      }>(`/v1/projects/${project.id}/milestones/${milestone.id}`, {
-        method: "PATCH",
-        idempotencyKey: newIdempotencyKey(),
-        ifMatch: `"${advanced.version}"`,
-        contentType: "application/vnd.lites.milestone-transition.v2+json",
-        body: {
-          request_id: newIdempotencyKey(),
-          action: "start",
-          expected_project_version: advanced.version,
-          expected_milestone_version: milestone.version,
-        },
-      });
-      const submitted = await apiRequest<{
-        version: number;
-        milestone_version: number;
-        milestone_status: string;
-      }>(`/v1/projects/${project.id}/milestones/${milestone.id}`, {
-        method: "PATCH",
-        idempotencyKey: newIdempotencyKey(),
-        ifMatch: `"${started.version}"`,
-        contentType: "application/vnd.lites.milestone-transition.v2+json",
-        body: {
-          request_id: newIdempotencyKey(),
-          action: "submit",
-          result: deliverable.trim(),
-          expected_project_version: started.version,
-          expected_milestone_version: started.milestone_version,
-        },
-      });
-      const generation = await apiRequest<{ run_id: string }>(
-        `/v1/projects/${project.id}/test-runs`,
-        {
-          method: "POST",
+      if (!project.workspaceID || !project.workspaceRevision)
+        throw new Error("workspace_binding_required");
+      let working = project;
+      let projectVersion = project.version;
+      let workspaceVersion = project.workspaceVersion;
+      let workspaceRevision = project.workspaceRevision;
+      let milestoneVersion = milestone.version;
+      let milestoneStatus = milestone.status;
+      if (
+        ["submitted", "verified"].includes(milestoneStatus) &&
+        nextRevision !== workspaceRevision
+      )
+        throw new Error("submitted_revision_locked");
+      const updateMilestone = (
+        update: Partial<ProjectState["milestones"][number]>,
+      ) => {
+        const updated = working.milestones.map((item, index) =>
+          index === working.currentMilestone ? { ...item, ...update } : item,
+        );
+        working = { ...working, milestones: updated };
+        setProject(working);
+      };
+      if (nextRevision !== workspaceRevision) {
+        const advanced = await apiRequest<{
+          version: number;
+          workspace: { id: string; version: number; head_revision: string };
+        }>(`/v1/projects/${project.id}/workspace`, {
+          method: "PATCH",
           idempotencyKey: newIdempotencyKey(),
-          ifMatch: `"${submitted.version}"`,
-          contentType: "application/vnd.lites.project-test-generation.v2+json",
+          ifMatch: `"${projectVersion}"`,
+          contentType:
+            "application/vnd.lites.project-workspace-advance.v2+json",
           body: {
             request_id: newIdempotencyKey(),
-            milestone_id: milestone.id,
-            validation_kind: "rubric_review",
-            validation_spec: {
-              schema_version: 1,
-              requires_observed_evidence: true,
-              no_self_attestation: true,
-              exact_inline_revision: nextRevision,
-            },
-            workspace_revision: nextRevision,
-            expected_project_version: submitted.version,
-            expected_milestone_version: submitted.milestone_version,
-            expected_workspace_binding_version: advanced.workspace.version,
+            binding_id: project.workspaceID,
+            expected_head_revision: workspaceRevision,
+            head_revision: nextRevision,
+            expected_project_version: projectVersion,
+            expected_binding_version: workspaceVersion,
           },
-        },
-      );
+        });
+        projectVersion = advanced.version;
+        workspaceVersion = advanced.workspace.version;
+        workspaceRevision = advanced.workspace.head_revision;
+        working = {
+          ...working,
+          version: projectVersion,
+          workspaceVersion,
+          workspaceRevision,
+        };
+        setProject(working);
+      } else if (milestoneStatus === "planned") {
+        throw new Error("workspace_revision_unchanged");
+      }
+
+      if (milestoneStatus === "verified") {
+        const completed = await apiRequest<{
+          version: number;
+          milestone_version: number;
+        }>(`/v1/projects/${project.id}/milestones/${milestone.id}`, {
+          method: "PATCH",
+          idempotencyKey: newIdempotencyKey(),
+          ifMatch: `"${projectVersion}"`,
+          contentType: "application/vnd.lites.milestone-transition.v2+json",
+          body: {
+            request_id: newIdempotencyKey(),
+            action: "complete",
+            expected_project_version: projectVersion,
+            expected_milestone_version: milestoneVersion,
+          },
+        });
+        projectVersion = completed.version;
+        updateMilestone({
+          version: completed.milestone_version,
+          status: "completed",
+          result: deliverable.trim(),
+        });
+        working = { ...working, version: projectVersion };
+        if (working.currentMilestone + 1 < working.milestones.length) {
+          working = {
+            ...working,
+            currentMilestone: working.currentMilestone + 1,
+          };
+          setProject(working);
+          setDeliverable(
+            working.milestones[working.currentMilestone]?.result ?? "",
+          );
+          setPhase("workspace");
+        } else {
+          setProject(working);
+          setPhase("evidence");
+        }
+        return;
+      }
+
+      if (milestoneStatus === "planned") {
+        const started = await apiRequest<{
+          version: number;
+          milestone_version: number;
+        }>(`/v1/projects/${project.id}/milestones/${milestone.id}`, {
+          method: "PATCH",
+          idempotencyKey: newIdempotencyKey(),
+          ifMatch: `"${projectVersion}"`,
+          contentType: "application/vnd.lites.milestone-transition.v2+json",
+          body: {
+            request_id: newIdempotencyKey(),
+            action: "start",
+            expected_project_version: projectVersion,
+            expected_milestone_version: milestoneVersion,
+          },
+        });
+        projectVersion = started.version;
+        milestoneVersion = started.milestone_version;
+        milestoneStatus = "in_progress";
+        working = { ...working, version: projectVersion };
+        updateMilestone({ version: milestoneVersion, status: milestoneStatus });
+      }
+      const resumedSubmitted = milestoneStatus === "submitted";
+      if (milestoneStatus === "in_progress" || milestoneStatus === "rework") {
+        const submittedMutation = await apiRequest<{
+          version: number;
+          milestone_version: number;
+        }>(`/v1/projects/${project.id}/milestones/${milestone.id}`, {
+          method: "PATCH",
+          idempotencyKey: newIdempotencyKey(),
+          ifMatch: `"${projectVersion}"`,
+          contentType: "application/vnd.lites.milestone-transition.v2+json",
+          body: {
+            request_id: newIdempotencyKey(),
+            action: "submit",
+            result: deliverable.trim(),
+            expected_project_version: projectVersion,
+            expected_milestone_version: milestoneVersion,
+          },
+        });
+        projectVersion = submittedMutation.version;
+        milestoneVersion = submittedMutation.milestone_version;
+        milestoneStatus = "submitted";
+        working = { ...working, version: projectVersion };
+        updateMilestone({
+          version: milestoneVersion,
+          status: milestoneStatus,
+          result: deliverable.trim(),
+          latest_evaluation: null,
+        });
+      }
+      if (milestoneStatus !== "submitted")
+        throw new Error("milestone_not_submittable");
+      const submitted = {
+        version: projectVersion,
+        milestone_version: milestoneVersion,
+      };
+      const resumable =
+        resumedSubmitted &&
+        milestone.latest_evaluation &&
+        ["generating", "succeeded"].includes(
+          milestone.latest_evaluation.status,
+        )
+          ? milestone.latest_evaluation
+          : null;
+      const generation = resumable
+        ? { run_id: resumable.run_id, status: resumable.status }
+        : await apiRequest<{ run_id: string; status: string }>(
+            `/v1/projects/${project.id}/test-runs`,
+            {
+              method: "POST",
+              idempotencyKey: newIdempotencyKey(),
+              ifMatch: `"${submitted.version}"`,
+              contentType:
+                "application/vnd.lites.project-test-generation.v2+json",
+              body: {
+                request_id: newIdempotencyKey(),
+                milestone_id: milestone.id,
+                validation_kind: "rubric_review",
+                validation_spec: {
+                  schema_version: 1,
+                  requires_observed_evidence: true,
+                  no_self_attestation: true,
+                  exact_inline_revision: workspaceRevision,
+                },
+                workspace_revision: workspaceRevision,
+                expected_project_version: submitted.version,
+                expected_milestone_version: submitted.milestone_version,
+                expected_workspace_binding_version: workspaceVersion,
+              },
+            },
+          );
+      const alreadyReconciled = generation.status === "succeeded";
       let evidence: Evidence | undefined;
       let reconciledVersion = submitted.version;
       for (let attempt = 0; attempt < 120; attempt += 1) {
-        const [evidencePage, projectPage, run] = await Promise.all([
+        const [evidencePage, projectDetail] = await Promise.all([
           apiRequest<{ items: Evidence[] }>("/v1/capability-evidence", {
             accept: "application/vnd.lites.evidence-list.v2+json",
           }),
-          apiRequest<{ items: { id: string; version: number }[] }>(
-            "/v1/projects",
-            { accept: "application/vnd.lites.projects.v2+json" },
+          apiRequest<ProjectDetail>(
+            `/v1/projects/${encodeURIComponent(project.id)}`,
+            { accept: "application/vnd.lites.project-detail.v2+json" },
           ),
-          apiRequest<{ status: string }>(`/v1/runs/${generation.run_id}`),
         ]);
         evidence = evidencePage.items.find(
           (item) => item.source_id === generation.run_id,
         );
-        reconciledVersion =
-          projectPage.items.find((item) => item.id === project.id)?.version ??
-          submitted.version;
-        if (evidence && reconciledVersion > submitted.version) break;
-        if (["failed", "cancelled", "expired"].includes(run.status))
-          throw new Error(`evaluation_${run.status}`);
+        reconciledVersion = projectDetail.project.version;
+        const evaluation = projectDetail.milestones.find(
+          (item) => item.id === milestone.id,
+        )?.latest_evaluation;
+        if (
+          evidence &&
+          (alreadyReconciled || reconciledVersion > submitted.version)
+        )
+          break;
+        if (
+          evaluation?.run_id === generation.run_id &&
+          evaluation.status === "failed"
+        )
+          throw new Error(
+            `evaluation_${evaluation.failure_reason ?? evaluation.status}`,
+          );
         await delay(1000);
       }
-      if (!evidence || reconciledVersion <= submitted.version)
+      if (
+        !evidence ||
+        (!alreadyReconciled && reconciledVersion <= submitted.version)
+      )
         throw new Error("evaluation_timeout");
       setLastEvidence(evidence);
       if (evidence.content.evaluation?.result !== "passed") {
@@ -412,15 +721,24 @@ export function CreateStudio({ locale }: { locale: Locale }) {
         });
         const updatedMilestones = project.milestones.map((item, index) =>
           index === project.currentMilestone
-            ? { ...item, version: rework.milestone_version, status: "rework" }
+            ? {
+                ...item,
+                version: rework.milestone_version,
+                status: "rework" as const,
+                result: deliverable.trim(),
+                evidence_ids: [...new Set([...item.evidence_ids, evidence.id])],
+              }
             : item,
         );
         setProject({
           ...project,
           version: rework.version,
-          workspaceVersion: advanced.workspace.version,
-          workspaceRevision: nextRevision,
+          workspaceVersion,
+          workspaceRevision,
           milestones: updatedMilestones,
+          evidenceIDs: [
+            ...new Set(updatedMilestones.flatMap((item) => item.evidence_ids)),
+          ],
         });
         setError(
           evidence.content.evaluation?.summary ??
@@ -466,18 +784,24 @@ export function CreateStudio({ locale }: { locale: Locale }) {
           ? {
               ...item,
               version: completed.milestone_version,
-              status: "completed",
+              status: "completed" as const,
+              result: deliverable.trim(),
+              evidence_ids: [...new Set([...item.evidence_ids, evidence.id])],
             }
           : item,
       );
       const updated: ProjectState = {
         ...project,
         version: completed.version,
-        workspaceVersion: advanced.workspace.version,
-        workspaceRevision: nextRevision,
+        workspaceVersion,
+        workspaceRevision,
         milestones: updatedMilestones,
-        evidenceIDs: [...project.evidenceIDs, evidence.id],
-        outputs: [...project.outputs, deliverable.trim()],
+        evidenceIDs: [
+          ...new Set(updatedMilestones.flatMap((item) => item.evidence_ids)),
+        ],
+        outputs: updatedMilestones.flatMap((item) =>
+          item.result ? [item.result] : [],
+        ),
       };
       if (project.currentMilestone + 1 < project.milestones.length) {
         setProject({
@@ -508,24 +832,35 @@ export function CreateStudio({ locale }: { locale: Locale }) {
         setPhase("reflection");
         return;
       }
-      const artifact = await apiRequest<{ id: string; version: number }>(
-        "/v1/artifacts",
-        {
-          method: "POST",
-          idempotencyKey: newIdempotencyKey(),
-          contentType: "application/vnd.lites.artifact-create.v2+json",
-          body: {
-            request_id: newIdempotencyKey(),
-            project_id: project.id,
-            artifact_kind: selected,
-            title: brief.trim().slice(0, 200),
+      let artifact = project.artifactID
+        ? { id: project.artifactID, version: project.artifactVersion ?? 1 }
+        : null;
+      if (!artifact) {
+        artifact = await apiRequest<{ id: string; version: number }>(
+          "/v1/artifacts",
+          {
+            method: "POST",
+            idempotencyKey: newIdempotencyKey(),
+            contentType: "application/vnd.lites.artifact-create.v2+json",
+            body: {
+              request_id: newIdempotencyKey(),
+              project_id: project.id,
+              artifact_kind: selected,
+              title: brief.trim().slice(0, 200),
+            },
           },
-        },
-      );
+        );
+        setProject({
+          ...project,
+          artifactID: artifact.id,
+          artifactVersion: artifact.version,
+        });
+      }
       const content = [
         `# ${brief.trim()}`,
         ...project.outputs.map(
-          (output, index) => `## ${milestones[index]}\n\n${output}`,
+          (output, index) =>
+            `## ${project.milestones[index]?.title ?? `Milestone ${index + 1}`}\n\n${output}`,
         ),
         `## Revision response\n\n${revisionNote.trim()}`,
       ].join("\n\n");
@@ -550,7 +885,9 @@ export function CreateStudio({ locale }: { locale: Locale }) {
         ...project,
         artifactID: artifact.id,
         artifactVersion: revision.artifact_version,
-        artifactRevisionIDs: [revision.id],
+        artifactRevisionIDs: [
+          ...new Set([...project.artifactRevisionIDs, revision.id]),
+        ],
       });
       setPhase("reflection");
     } catch (cause) {
@@ -583,7 +920,11 @@ export function CreateStudio({ locale }: { locale: Locale }) {
           },
         },
       );
-      setProject({ ...project, version: completed.version });
+      setProject({
+        ...project,
+        version: completed.version,
+        status: "completed",
+      });
       setPhase("complete");
     } catch (cause) {
       setError(
@@ -606,10 +947,13 @@ export function CreateStudio({ locale }: { locale: Locale }) {
           media_type: "application/zip",
           byte_size: 1024,
           failure_code: null,
+          created_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
         });
         return;
       }
-      let current = await apiRequest<ExportState>("/v1/portfolio-exports", {
+      const current = await apiRequest<ExportState>("/v1/portfolio-exports", {
         method: "POST",
         idempotencyKey: newIdempotencyKey(),
         ifMatch: `"${project.version}"`,
@@ -625,21 +969,6 @@ export function CreateStudio({ locale }: { locale: Locale }) {
         },
       });
       setPortfolioExport(current);
-      for (
-        let attempt = 0;
-        attempt < 180 && current.status !== "ready";
-        attempt += 1
-      ) {
-        if (["failed", "expired"].includes(current.status))
-          throw new Error(current.failure_code ?? `export_${current.status}`);
-        await delay(1000);
-        current = await apiRequest<ExportState>(
-          `/v1/portfolio-exports/${current.id}`,
-          { accept: "application/vnd.lites.portfolio-export.v2+json" },
-        );
-        setPortfolioExport(current);
-      }
-      if (current.status !== "ready") throw new Error("export_timeout");
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "portfolio_export_failed",
@@ -719,7 +1048,7 @@ export function CreateStudio({ locale }: { locale: Locale }) {
           </p>
         </div>
       </header>
-      {phase !== "brief" && (
+      {phase !== "brief" && phase !== "restoring" && (
         <ol
           className="create-progress"
           aria-label={zh ? "项目生命周期" : "Project lifecycle"}
@@ -733,6 +1062,45 @@ export function CreateStudio({ locale }: { locale: Locale }) {
             </li>
           ))}
         </ol>
+      )}
+
+      {phase === "restoring" && (
+        <section className="workspace-created card" aria-live="polite">
+          {error ? (
+            <AlertCircle className="create-loader" />
+          ) : (
+            <LoaderCircle className="spinner-icon create-loader" />
+          )}
+          <p className="eyebrow">
+            {zh ? "恢复项目" : "Restore project"}
+          </p>
+          <h1>
+            {error
+              ? zh
+                ? "暂时无法读取持久化项目。"
+                : "The durable project could not be loaded."
+              : zh
+                ? "正在恢复 Workspace、里程碑、证据和导出状态。"
+                : "Restoring Workspace, milestones, evidence, and export state."}
+          </h1>
+          {error && (
+            <>
+              <p className="error-note" role="alert">
+                {error}
+              </p>
+              <button
+                className="button primary"
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setRestoreAttempt((value) => value + 1);
+                }}
+              >
+                {zh ? "重试恢复" : "Retry restore"}
+              </button>
+            </>
+          )}
+        </section>
       )}
 
       {phase === "brief" && (
@@ -854,7 +1222,7 @@ export function CreateStudio({ locale }: { locale: Locale }) {
             {phase === "provisioning" ? (
               <>
                 <LoaderCircle className="spinner-icon" />
-                {zh ? "正在原子创建…" : "Creating atomically…"}
+                {zh ? "正在持久化创建…" : "Creating durable records…"}
               </>
             ) : (
               <>

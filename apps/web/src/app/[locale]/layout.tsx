@@ -1,13 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { notFound } from "next/navigation";
-import { Manrope, Newsreader } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { dictionary } from "@/i18n/dictionaries";
 import { isLocale, locales } from "@/i18n/config";
 import "../globals.css";
-
-const sans = Manrope({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
-const serif = Newsreader({ subsets: ["latin"], variable: "--font-serif", display: "swap" });
 
 export const metadata: Metadata = {
   title: { default: "Lites — Skill migration, proven", template: "%s · Lites" },
@@ -27,7 +23,7 @@ export default async function LocaleLayout({ children, params }: Readonly<{ chil
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
   return (
-    <html lang={locale} className={`${sans.variable} ${serif.variable}`} data-scroll-behavior="smooth">
+    <html lang={locale} data-scroll-behavior="smooth">
       <body>
         <a className="skip-link" href="#main-content">Skip to main content</a>
         <Providers dictionary={dictionary(locale)}>{children}</Providers>

@@ -60,8 +60,13 @@ func SeedBehaviorChannel(ctx context.Context, admin *pgxpool.Pool, tenantID, use
 		fixtureUUID(tenantID, string(profile), environment, "evaluation-event"),
 		fixtureUUID(tenantID, string(profile), environment, "deployment-event"),
 	}
+	// Preserve the EventStore cursor-before-event lock order even in fixtures so
+	// concurrent integration work cannot introduce a fixture-only deadlock.
 	var firstSequence int64
-	if err = tx.QueryRow(ctx, `SELECT COALESCE(max(seq),0)+1 FROM agent.events WHERE tenant_id=$1 AND user_id=$2`, tenantID, userID).Scan(&firstSequence); err != nil {
+	if err = tx.QueryRow(ctx, `INSERT INTO agent.event_cursors(tenant_id,user_id,last_seq)
+VALUES($1,$2,(SELECT COALESCE(max(seq),0)+$3 FROM agent.events WHERE tenant_id=$1 AND user_id=$2))
+ON CONFLICT (tenant_id,user_id) DO UPDATE SET last_seq=agent.event_cursors.last_seq+$3
+RETURNING last_seq-$3+1`, tenantID, userID, len(eventIDs)).Scan(&firstSequence); err != nil {
 		return behavior.ChannelBinding{}, err
 	}
 	for index, eventID := range eventIDs {
@@ -70,9 +75,6 @@ func SeedBehaviorChannel(ctx context.Context, admin *pgxpool.Pool, tenantID, use
 		if _, err = tx.Exec(ctx, `INSERT INTO agent.events(id,tenant_id,user_id,seq,event_type,event_schema_version,aggregate_kind,aggregate_id,aggregate_version,store_epoch,occurred_at,committed_at,actor,correlation_id,payload_ref,payload_hash) VALUES($1,$2,$3,$4,$5,1,'integration_fixture',$6,1,$7,$8,$8,'{"kind":"system","component":"integration-fixture"}',$9,$10,$11)`, eventID, tenantID, userID, firstSequence+int64(index), eventType, aggregateID, epoch, at, correlation, "encrypted://integration/behavior/"+eventID, fixtureHash(eventID)); err != nil {
 			return behavior.ChannelBinding{}, err
 		}
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO agent.event_cursors(tenant_id,user_id,last_seq) VALUES($1,$2,$3) ON CONFLICT (tenant_id,user_id) DO UPDATE SET last_seq=GREATEST(agent.event_cursors.last_seq,EXCLUDED.last_seq)`, tenantID, userID, firstSequence+int64(len(eventIDs))-1); err != nil {
-		return behavior.ChannelBinding{}, err
 	}
 	manifest := func(hash string) string {
 		return fmt.Sprintf(`{"schema_version":1,"profile":%q,"source_commit":"integration-fixture","fixture_hash":%q}`, profile, hash)

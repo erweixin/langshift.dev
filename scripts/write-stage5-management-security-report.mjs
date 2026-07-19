@@ -10,6 +10,9 @@ const sourceCommit = args.get("--source-commit");
 if (!databasePath || !/^[0-9a-f]{40}$/.test(sourceCommit ?? "")) throw new Error("usage: write-stage5-management-security-report.mjs --database <go-test.jsonl> --source-commit <40-hex>");
 
 const raw = await readFile(databasePath);
+const migrationManifestRaw = await readFile("deploy/migrations/manifest.json");
+const currentMigration = JSON.parse(migrationManifestRaw).migrations?.at(-1);
+if (!Number.isInteger(currentMigration?.version) || !currentMigration?.name) throw new Error("current migration manifest is invalid");
 const records = raw.toString("utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
 const requiredTests = [
   "TestContractControlPlaneRequiresCurrentTwoPersonApprovalAndSynchronizesSeats",
@@ -69,7 +72,8 @@ const base = {
   overallStage5Status: "in_progress",
   evidence: {
     databaseGoTestJsonSha256: createHash("sha256").update(raw).digest("hex"),
-    database: "PostgreSQL 16 isolated database with migrations through version 84",
+    database: `PostgreSQL 16 isolated database with migrations through version ${currentMigration.version}`,
+    migration: { version: currentMigration.version, name: currentMigration.name, manifestSha256: createHash("sha256").update(migrationManifestRaw).digest("hex") },
     serviceRole: "NOBYPASSRLS lites_contract_service",
     tests: requiredTests,
   },

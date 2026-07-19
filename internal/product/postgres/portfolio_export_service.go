@@ -335,7 +335,7 @@ func (service PortfolioExportService) prepare(ctx context.Context, command produ
 }
 
 func (service PortfolioExportService) identifiers(seed string) (portfolioExportIDs, error) {
-	domains := []string{"portfolio-export", "portfolio-conversation", "portfolio-message", "portfolio-run", "portfolio-start-payload"}
+	domains := []string{"portfolio-export", "portfolio-conversation", "portfolio-message", "portfolio-run"}
 	values := make([]string, len(domains))
 	for index, domain := range domains {
 		value, err := ids.DeterministicUUID(service.IDKey, domain, seed)
@@ -344,7 +344,11 @@ func (service PortfolioExportService) identifiers(seed string) (portfolioExportI
 		}
 		values[index] = value
 	}
-	return portfolioExportIDs{values[0], values[1], values[2], values[3], values[4]}, nil
+	startCommand, err := executionpostgres.RunStartCommandID(service.Store.IDKey, values[3])
+	if err != nil {
+		return portfolioExportIDs{}, err
+	}
+	return portfolioExportIDs{values[0], values[1], values[2], values[3], startCommand}, nil
 }
 
 func (service PortfolioExportService) putJSON(ctx context.Context, descriptor payload.Descriptor, value any) (payload.Manifest, error) {

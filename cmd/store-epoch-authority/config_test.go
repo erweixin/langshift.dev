@@ -48,6 +48,21 @@ func TestDevelopmentConfigRequiresLoopbackListener(t *testing.T) {
 	}
 }
 
+func TestDevelopmentConfigAllowsNetworkListenerOnlyWithMTLS(t *testing.T) {
+	setProductionEnvironment(t)
+	t.Setenv("ALLOW_INSECURE_DEVELOPMENT", "true")
+	t.Setenv("LISTEN_ADDRESS", "0.0.0.0:8443")
+	t.Setenv("OTLP_GRPC_ENDPOINT", "")
+	t.Setenv("OTLP_BEARER_TOKEN_FILE", "")
+	if _, err := loadConfig(); err != nil {
+		t.Fatalf("mTLS development listener rejected: %v", err)
+	}
+	t.Setenv("SERVER_CLIENT_CA_FILE", "")
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("network development listener without client CA accepted")
+	}
+}
+
 func TestHealthListenerCannotExposeUnauthenticatedMetrics(t *testing.T) {
 	setProductionEnvironment(t)
 	t.Setenv("HEALTH_ADDRESS", "0.0.0.0:8084")

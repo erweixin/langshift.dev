@@ -34,7 +34,7 @@ import (
 )
 
 type config struct {
-	databaseURL, healthAddress, epochURL, epochTokenFile, epochCAFile                                        string
+	databaseURL, healthAddress, epochURL, epochTokenFile, epochCAFile, epochCertFile, epochKeyFile           string
 	natsURLs                                                                                                 []string
 	natsName, natsCredentialsFile, natsCAFile, natsCertFile, natsKeyFile, streamName                         string
 	schedulerConfigFile, resourcePepperFile, dispatchPepperFile, owner                                       string
@@ -80,7 +80,7 @@ func run(parent context.Context, cfg config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	epochClient, err := tlsHTTPClient(cfg.epochCAFile, cfg.allowInsecure)
+	epochClient, err := tlsHTTPClient(cfg.epochCAFile, cfg.epochCertFile, cfg.epochKeyFile, cfg.allowInsecure)
 	if err != nil {
 		return err
 	}
@@ -249,17 +249,17 @@ func loadPolicy(path string) (scheduler.Config, []string, error) {
 
 func loadConfig() (config, error) {
 	host, _ := os.Hostname()
-	cfg := config{databaseURL: secretEnv("DATABASE_URL_FILE"), healthAddress: env("HEALTH_ADDRESS", "127.0.0.1:8089"), epochURL: os.Getenv("STORE_EPOCH_URL"), epochTokenFile: os.Getenv("STORE_EPOCH_TOKEN_FILE"), epochCAFile: os.Getenv("STORE_EPOCH_ROOT_CA_FILE"), natsURLs: split(os.Getenv("NATS_URLS")), natsName: env("NATS_CLIENT_NAME", "lites-agent-scheduler"), natsCredentialsFile: os.Getenv("NATS_CREDENTIALS_FILE"), natsCAFile: os.Getenv("NATS_ROOT_CA_FILE"), natsCertFile: os.Getenv("NATS_CLIENT_CERT_FILE"), natsKeyFile: os.Getenv("NATS_CLIENT_KEY_FILE"), streamName: env("NATS_COMMAND_STREAM", "LITES_COMMANDS"), schedulerConfigFile: os.Getenv("SCHEDULER_CONFIG_FILE"), resourcePepperFile: os.Getenv("SCHEDULER_RESOURCE_PEPPER_FILE"), dispatchPepperFile: os.Getenv("SCHEDULER_DISPATCH_PEPPER_FILE"), owner: env("SCHEDULER_OWNER", host), environment: os.Getenv("LITES_ENVIRONMENT"), version: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), allowInsecure: boolEnv("ALLOW_INSECURE_DEVELOPMENT"), streamReplicas: intEnv("NATS_STREAM_REPLICAS", 3), batchLimit: intEnv("SCHEDULER_BATCH_LIMIT", 1000), streamMaxBytes: int64Env("NATS_STREAM_MAX_BYTES", 100<<30), streamMaxAge: durationEnv("NATS_STREAM_MAX_AGE", 7*24*time.Hour), duplicateWindow: durationEnv("NATS_DUPLICATE_WINDOW", 10*time.Minute), interval: durationEnv("SCHEDULER_INTERVAL", 100*time.Millisecond), resourceLeaseTTL: durationEnv("SCHEDULER_RESOURCE_LEASE_TTL", 5*time.Second), dispatchLeaseTTL: durationEnv("SCHEDULER_DISPATCH_LEASE_TTL", 30*time.Second), redeliveryDelay: durationEnv("SCHEDULER_REDELIVERY_DELAY", time.Minute), retryDelay: durationEnv("SCHEDULER_RETRY_DELAY", time.Second), traceRatio: floatEnv("TRACE_SAMPLE_RATIO", .1)}
-	if cfg.databaseURL == "" || cfg.epochURL == "" || len(cfg.natsURLs) == 0 || cfg.schedulerConfigFile == "" || cfg.resourcePepperFile == "" || cfg.dispatchPepperFile == "" || cfg.owner == "" || cfg.environment == "" || cfg.version == "" || cfg.region == "" || cfg.batchLimit < 1 || cfg.batchLimit > 1000 || cfg.streamReplicas < 1 || cfg.interval <= 0 || (cfg.natsCertFile == "") != (cfg.natsKeyFile == "") {
+	cfg := config{databaseURL: secretEnv("DATABASE_URL_FILE"), healthAddress: env("HEALTH_ADDRESS", "127.0.0.1:8089"), epochURL: os.Getenv("STORE_EPOCH_URL"), epochTokenFile: os.Getenv("STORE_EPOCH_TOKEN_FILE"), epochCAFile: os.Getenv("STORE_EPOCH_ROOT_CA_FILE"), epochCertFile: os.Getenv("STORE_EPOCH_CLIENT_CERT_FILE"), epochKeyFile: os.Getenv("STORE_EPOCH_CLIENT_KEY_FILE"), natsURLs: split(os.Getenv("NATS_URLS")), natsName: env("NATS_CLIENT_NAME", "lites-agent-scheduler"), natsCredentialsFile: os.Getenv("NATS_CREDENTIALS_FILE"), natsCAFile: os.Getenv("NATS_ROOT_CA_FILE"), natsCertFile: os.Getenv("NATS_CLIENT_CERT_FILE"), natsKeyFile: os.Getenv("NATS_CLIENT_KEY_FILE"), streamName: env("NATS_COMMAND_STREAM", "LITES_COMMANDS"), schedulerConfigFile: os.Getenv("SCHEDULER_CONFIG_FILE"), resourcePepperFile: os.Getenv("SCHEDULER_RESOURCE_PEPPER_FILE"), dispatchPepperFile: os.Getenv("SCHEDULER_DISPATCH_PEPPER_FILE"), owner: env("SCHEDULER_OWNER", host), environment: os.Getenv("LITES_ENVIRONMENT"), version: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"), otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), allowInsecure: boolEnv("ALLOW_INSECURE_DEVELOPMENT"), streamReplicas: intEnv("NATS_STREAM_REPLICAS", 3), batchLimit: intEnv("SCHEDULER_BATCH_LIMIT", 1000), streamMaxBytes: int64Env("NATS_STREAM_MAX_BYTES", 100<<30), streamMaxAge: durationEnv("NATS_STREAM_MAX_AGE", 7*24*time.Hour), duplicateWindow: durationEnv("NATS_DUPLICATE_WINDOW", 10*time.Minute), interval: durationEnv("SCHEDULER_INTERVAL", 100*time.Millisecond), resourceLeaseTTL: durationEnv("SCHEDULER_RESOURCE_LEASE_TTL", 5*time.Second), dispatchLeaseTTL: durationEnv("SCHEDULER_DISPATCH_LEASE_TTL", 30*time.Second), redeliveryDelay: durationEnv("SCHEDULER_REDELIVERY_DELAY", time.Minute), retryDelay: durationEnv("SCHEDULER_RETRY_DELAY", time.Second), traceRatio: floatEnv("TRACE_SAMPLE_RATIO", .1)}
+	if cfg.databaseURL == "" || cfg.epochURL == "" || len(cfg.natsURLs) == 0 || cfg.schedulerConfigFile == "" || cfg.resourcePepperFile == "" || cfg.dispatchPepperFile == "" || cfg.owner == "" || cfg.environment == "" || cfg.version == "" || cfg.region == "" || cfg.batchLimit < 1 || cfg.batchLimit > 1000 || cfg.streamReplicas < 1 || cfg.interval <= 0 || (cfg.epochCertFile == "") != (cfg.epochKeyFile == "") || (cfg.natsCertFile == "") != (cfg.natsKeyFile == "") {
 		return cfg, errors.New("required scheduler configuration is missing or invalid")
 	}
-	if !cfg.allowInsecure && (os.Getenv("DATABASE_URL_FILE") == "" || cfg.streamReplicas < 3 || cfg.epochTokenFile == "" || cfg.epochCAFile == "" || cfg.natsCAFile == "" || cfg.natsCertFile == "" || cfg.otlpEndpoint == "" || cfg.otlpCAFile == "" || cfg.otlpTokenFile == "") {
+	if !cfg.allowInsecure && (os.Getenv("DATABASE_URL_FILE") == "" || cfg.streamReplicas < 3 || cfg.epochTokenFile == "" || cfg.epochCAFile == "" || cfg.epochCertFile == "" || cfg.natsCAFile == "" || cfg.natsCertFile == "" || cfg.otlpEndpoint == "" || cfg.otlpCAFile == "" || cfg.otlpTokenFile == "") {
 		return cfg, errors.New("production scheduler requires file credentials, TLS, authenticated telemetry, and three JetStream replicas")
 	}
 	return cfg, nil
 }
 
-func tlsHTTPClient(caFile string, insecure bool) (*http.Client, error) {
+func tlsHTTPClient(caFile, certificateFile, keyFile string, insecure bool) (*http.Client, error) {
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13}
 	if caFile != "" {
 		body, err := os.ReadFile(caFile)
@@ -274,6 +274,13 @@ func tlsHTTPClient(caFile string, insecure bool) (*http.Client, error) {
 			return nil, errors.New("epoch CA is empty")
 		}
 		tlsConfig.RootCAs = roots
+	}
+	if certificateFile != "" {
+		certificate, err := tls.LoadX509KeyPair(certificateFile, keyFile)
+		if err != nil {
+			return nil, errors.New("epoch client certificate is invalid")
+		}
+		tlsConfig.Certificates = []tls.Certificate{certificate}
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = tlsConfig

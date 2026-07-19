@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -48,6 +49,10 @@ func (eraser AnonymousClaimEraser) Erase(ctx context.Context, saga anonymousclai
 	if eraser.Now != nil {
 		now = eraser.Now().UTC()
 	}
+	// PostgreSQL timestamptz stores microseconds. Keep the receipt timestamp at
+	// that precision before hashing and returning it so the subsequent saga CAS
+	// can compare the already-durable receipt without a false nanosecond drift.
+	now = now.Truncate(time.Microsecond)
 	receiptID, err := ids.DeterministicUUID(eraser.IdentityKey, "anonymous-erasure-receipt:"+surface, saga.ClaimKey)
 	if err != nil {
 		return anonymousclaim.DeletionReceipt{}, err
@@ -87,9 +92,9 @@ func (eraser AnonymousClaimEraser) Erase(ctx context.Context, saga anonymousclai
 		details["objects_deleted"] = deleted
 		details["projection_cleared"] = true
 	case "preview_projection":
-		var routeID, missionID string
+		var routeID, missionID, plannerRunID string
 		var routeRef, routeHash, goalRef, goalHash *string
-		err = tx.QueryRow(ctx, `SELECT r.id::text,r.mission_id::text,r.route_payload_ref,r.route_payload_hash,m.goal_payload_ref,m.goal_payload_hash FROM identity.onboarding_claims c JOIN product.route_revisions r ON r.id=c.source_route_revision_id AND r.tenant_id=c.tenant_id JOIN product.missions m ON m.id=r.mission_id AND m.tenant_id=r.tenant_id WHERE c.id=$1 AND c.tenant_id=$2 AND c.claim_key=$3 AND c.status='erasing' FOR UPDATE OF c,r,m`, saga.ID, eraser.SystemTenantID, saga.ClaimKey).Scan(&routeID, &missionID, &routeRef, &routeHash, &goalRef, &goalHash)
+		err = tx.QueryRow(ctx, `SELECT r.id::text,r.mission_id::text,r.route_payload_ref,r.route_payload_hash,m.goal_payload_ref,m.goal_payload_hash,COALESCE(r.planner_run_id::text,'') FROM identity.onboarding_claims c JOIN product.route_revisions r ON r.id=c.source_route_revision_id AND r.tenant_id=c.tenant_id JOIN product.missions m ON m.id=r.mission_id AND m.tenant_id=r.tenant_id WHERE c.id=$1 AND c.tenant_id=$2 AND c.claim_key=$3 AND c.status='erasing' FOR UPDATE OF c,r,m`, saga.ID, eraser.SystemTenantID, saga.ClaimKey).Scan(&routeID, &missionID, &routeRef, &routeHash, &goalRef, &goalHash, &plannerRunID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			// A previous attempt may have committed the projection deletion but
 			// failed before returning. The receipt must then already exist.
@@ -107,6 +112,22 @@ func (eraser AnonymousClaimEraser) Erase(ctx context.Context, saga anonymousclai
 			return anonymousclaim.DeletionReceipt{}, deleteErr
 		}
 		deleted += goalDeleted
+		executionObjects, deleteErr := eraser.deleteExecutionPayloads(ctx, tx, saga.EphemeralUserID, missionID, routeID, plannerRunID)
+		if deleteErr != nil {
+			return anonymousclaim.DeletionReceipt{}, deleteErr
+		}
+		deleted += executionObjects
+		sessionProjection, deleteErr := tx.Exec(ctx, `UPDATE identity.onboarding_sessions SET mission_id=NULL,route_revision_id=NULL,updated_at=$1 WHERE tenant_id=$2 AND id=(SELECT onboarding_session_id FROM identity.onboarding_claims WHERE tenant_id=$2 AND id=$3 AND claim_key=$4 AND status='erasing')`, now, eraser.SystemTenantID, saga.ID, saga.ClaimKey)
+		if deleteErr != nil || sessionProjection.RowsAffected() != 1 {
+			if deleteErr != nil {
+				return anonymousclaim.DeletionReceipt{}, deleteErr
+			}
+			return anonymousclaim.DeletionReceipt{}, anonymousclaim.ErrInvariant
+		}
+		conversations, deleteErr := tx.Exec(ctx, `DELETE FROM agent.conversations WHERE tenant_id=$1 AND user_id=$2 AND mission_id=$3`, eraser.SystemTenantID, saga.EphemeralUserID, missionID)
+		if deleteErr != nil {
+			return anonymousclaim.DeletionReceipt{}, deleteErr
+		}
 		tag, deleteErr := tx.Exec(ctx, `DELETE FROM product.missions WHERE id=$1 AND tenant_id=$2`, missionID, eraser.SystemTenantID)
 		if deleteErr != nil || tag.RowsAffected() != 1 {
 			if deleteErr != nil {
@@ -115,6 +136,9 @@ func (eraser AnonymousClaimEraser) Erase(ctx context.Context, saga anonymousclai
 			return anonymousclaim.DeletionReceipt{}, anonymousclaim.ErrInvariant
 		}
 		details["objects_deleted"] = deleted
+		details["execution_objects_deleted"] = executionObjects
+		details["conversations_deleted"] = conversations.RowsAffected()
+		details["onboarding_projection_cleared"] = true
 		details["route_revision_id_hash"] = sha256String(routeID)
 		details["mission_projection_deleted"] = true
 	case "principal_mapping":
@@ -143,6 +167,60 @@ func (eraser AnonymousClaimEraser) Erase(ctx context.Context, saga anonymousclai
 		return anonymousclaim.DeletionReceipt{}, err
 	}
 	return receipt, nil
+}
+
+func (eraser AnonymousClaimEraser) deleteExecutionPayloads(ctx context.Context, tx pgx.Tx, userID, missionID, routeID, plannerRunID string) (int, error) {
+	rows, err := tx.Query(ctx, `
+SELECT payload_ref,payload_hash FROM agent.run_messages
+ WHERE tenant_id=$1 AND user_id=$2 AND run_id=NULLIF($5,'')::uuid
+UNION SELECT payload_ref,content_hash FROM agent.run_message_chunks
+ WHERE tenant_id=$1 AND run_id=NULLIF($5,'')::uuid
+UNION SELECT payload_ref,payload_hash FROM agent.events
+ WHERE tenant_id=$1 AND user_id=$2 AND (
+   aggregate_id IN ($3::uuid,$4::uuid,NULLIF($5,'')::uuid)
+   OR aggregate_id IN (SELECT id FROM agent.conversations WHERE tenant_id=$1 AND user_id=$2 AND mission_id=$3)
+ )
+UNION SELECT response_payload_ref,response_hash FROM agent.idempotency_responses
+ WHERE tenant_id=$1 AND user_id=$2 AND response_payload_ref IS NOT NULL AND response_hash IS NOT NULL
+UNION SELECT payload_ref,payload_hash FROM agent.outbox
+ WHERE tenant_id=$1 AND (
+   aggregate_id IN ($3::uuid,$4::uuid,NULLIF($5,'')::uuid)
+   OR aggregate_id IN (SELECT id FROM agent.conversations WHERE tenant_id=$1 AND user_id=$2 AND mission_id=$3)
+ )
+UNION SELECT state_ref,state_hash FROM agent.snapshots
+ WHERE tenant_id=$1 AND aggregate_id=NULLIF($5,'')::uuid`, eraser.SystemTenantID, userID, missionID, routeID, plannerRunID)
+	if err != nil {
+		return 0, err
+	}
+	refs := map[string]struct{}{}
+	for rows.Next() {
+		var ref, hash string
+		if err = rows.Scan(&ref, &hash); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if ref == "" || hash == "" {
+			rows.Close()
+			return 0, anonymousclaim.ErrInvariant
+		}
+		refs[ref] = struct{}{}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+	ordered := make([]string, 0, len(refs))
+	for ref := range refs {
+		ordered = append(ordered, ref)
+	}
+	sort.Strings(ordered)
+	for _, ref := range ordered {
+		if err = eraser.Objects.Delete(ctx, ref); err != nil {
+			return 0, err
+		}
+	}
+	return len(ordered), nil
 }
 
 func (eraser AnonymousClaimEraser) deletePayload(ctx context.Context, ref, hash *string) (int, error) {

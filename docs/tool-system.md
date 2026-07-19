@@ -2,6 +2,8 @@
 
 > 定位：能力专题。本文档解释工具怎么被平台认识和管理：工具要先声明自己能做什么、怎么调用、会产生什么副作用、需要什么权限，然后才能被 Agent 使用。运行时隔离见 [runtime-and-sandbox.md](./runtime-and-sandbox.md)，副作用分级见 [execution-model.md](./execution-model.md)。
 
+> 产品范围：本轮 Tool System 仅承载 Lites 职业迁移产品随版本发布的内部工具。仓库不提供 Tool Management 公共 API、租户上传、自定义镜像、MCP 托管或 Marketplace；`source` 只允许 `platform`。下文的治理模型用于约束内部工具，不能解读为通用 Agent PaaS 承诺。
+
 ## 问题、决策与风险
 
 **问题**：Agent 的能力边界由工具决定。一个工具不只是"一段可执行代码"——它有输入输出 schema、副作用等级、权限需求、secret 依赖、runtime 要求和版本演进。如果只暴露一个 handler 函数，系统就无法在调用前判断"这个工具能不能安全执行、失败后能不能重试、模型应该怎么调用它"。
@@ -10,13 +12,13 @@
 
 **为什么不直接让 Agent 调用函数**：LLM 决定调用什么工具，但不应该决定工具是否有权执行、失败后是否重试、凭证如何获取。这些是平台责任，必须由声明驱动，不能靠 handler 内部自行判断。
 
-**忽略后果**：缺乏声明的工具会导致——模型调用格式错误时 runtime 才报错；危险写操作被当成安全读操作自动重试；工具升级后旧版 schema 和新版 handler 不匹配；租户自定义工具绕过安全审查直接上线。
+**忽略后果**：缺乏声明的工具会导致——模型调用格式错误时 runtime 才报错；危险写操作被当成安全读操作自动重试；工具升级后旧版 schema 和新版 handler 不匹配；未随产品发布并审核的工具绕过准入直接上线。
 
 | 应该 | 不应该 |
 | --- | --- |
 | 工具先声明能力，平台再决定调度 | 工具在 handler 里自行判断权限和重试 |
 | Schema 版本化，不兼容变更走新版本 | 直接改 schema 并期望旧 run 不受影响 |
-| 租户自定义工具经过审批和沙箱验证 | 上传即生效，不检查 schema 和能力声明 |
+| 内部工具随签名产品版本审核、测试和发布 | 运行时上传或动态发现未审核工具 |
 | 工具集 snapshot 和 descriptor hash 进入 `context_manifest` | 模型调用工具时不记录用的是哪份不可变声明 |
 
 ## 先用白话说
@@ -41,7 +43,7 @@
 │  schema + 能力 + 权限 + 运行时需求   │  失败后怎么处理、需要什么环境
 ├─────────────────────────────────────┤
 │  Tool Handler（实现）                │  真正执行的代码
-│  平台内置 / 租户上传 / 外部 API      │
+│  Lites 产品内置 / 受控外部 API       │
 ├─────────────────────────────────────┤
 │  Tool Runtime（执行环境）            │  在哪里跑、用什么隔离等级
 │  由 RuntimeManager 根据声明分配      │
@@ -91,7 +93,7 @@ tool_descriptor
   - egress_allowlist[]                 # 允许访问的域名列表
 
   # ── 元信息 ──
-  - source                             # platform | tenant_custom | marketplace
+  - source                             # platform（本轮唯一允许值）
   - deprecated: bool                   # 已弃用标记
   - successor_tool                     # 弃用后推荐的替代工具
   - changelog                          # 变更记录
@@ -105,63 +107,18 @@ tool_descriptor
 2. **ToolWorker**：执行前再次校验输入，防止绕过 AgentWorker 直接提交的请求。执行后校验输出，格式不符则记录 `ToolCallFailed`。
 3. **`context_manifest`**：每次 LLM 调用记录当时使用的 `tool_set_snapshot_id` 和 `tool_descriptor_hashes`，事后可以回答"模型看到的工具定义是哪一份不可变声明"。
 
-## 工具来源与注册
+## 工具来源与发布
 
-工具按来源分三类，注册和审批流程不同：
-
-### 平台内置工具（Platform Tools）
-
-由平台团队开发和维护。随代码版本发布，不需要运行时注册。
+本轮只允许平台内置工具（Platform Tools）。它们由 Lites 产品团队开发和维护，随代码与行为 manifest 一起发布，不存在面向租户或开发者的运行时注册入口。
 
 ```text
 注册方式：代码内声明 + 部署时自动加载
 审批：不需要额外审批
 更新：随平台版本发布，遵循语义版本
-示例：file_read、file_write、bash_execute、web_search
+示例：路线规划所需的职业内容检索、受控 Workspace 操作、Artifact 构建和证据发布
 ```
 
-### 租户自定义工具（Tenant Custom Tools）
-
-由租户通过管理 API 注册。上传 Descriptor + Handler（代码包或容器镜像），经过验证后才能在该租户的 conversation 中使用。
-
-```text
-注册流程：
-1. 租户通过 Tool Management API 提交 Descriptor + Handler
-2. 平台校验 input/output schema 格式
-3. 平台校验 effect_class 与声明的一致性（例如声明 read_only 但请求了 secret scope）
-4. 平台校验包签名、镜像 digest、SBOM/provenance 和依赖漏洞扫描结果
-5. 平台在隔离环境中执行 dry-run 验证，包括 schema、runtime capability、egress、secret scope、文件系统和 sandbox escape 测试
-6. 工具进入 pending_review 状态
-7. 管理员审批或自动策略通过后，状态变为 active
-8. 工具对该租户的 AgentWorker 可见
-```
-
-dry-run 不是“试试看能不能跑”的可选步骤，而是 active 前的门禁。通俗地说：租户可以上传工具，但平台不相信这个工具，直到它证明自己声明的权限、依赖、网络出口和副作用边界都和 Descriptor 一致。
-
-### 市场工具（Marketplace Tools）
-
-由第三方开发，经平台审核后发布到工具市场。租户从市场安装到自己的工具集。
-
-```text
-注册流程：
-1. 开发者提交工具到市场审核
-2. 平台安全团队审查 Descriptor、Handler、镜像、签名、SBOM/provenance、依赖漏洞和许可证风险
-3. 平台在隔离环境中做 dry-run、恶意行为扫描、sandbox escape 测试和 egress/secret 验证
-4. 审核通过后发布到市场，并记录审核 snapshot、artifact digest 和 attestation
-5. 租户从市场选择并安装
-6. 安装时绑定租户的 secret scope 和 permission policy
-7. 工具版本更新由市场推送，租户可选择自动或手动升级；高风险权限变化必须重新审批
-```
-
-市场工具的审核记录是运行时准入的一部分。ToolWorker 分配 runtime 前要能校验“当前要执行的 artifact digest”确实对应已审核版本；签名、SBOM、扫描结果或 attestation 缺失时 fail closed。
-
-### 外部协议工具（例如 MCP）
-
-MCP（Model Context Protocol）这类开放协议提供了另一种工具接入通道：平台通过协议客户端发现外部 server 暴露的工具和 schema。协议只解决“怎么发现和调用”，不改变本文的治理模型：
-
-- 每个外部工具接入时仍必须落成一份 Tool Descriptor——schema 从协议声明导入，effect_class、权限、secret scope、egress 和审批策略由平台或租户管理员补充声明，缺失时按最保守等级处理。
-- 按接入方归类进 tenant_custom 或 marketplace 的注册和审核流程；外部 server 地址进入 egress allowlist 管理。
-- 外部 server 的输出和普通 tool output 一样是不可信数据（见 [agent-safety-and-guardrails.md](./agent-safety-and-guardrails.md)）；server 返回的工具列表变化视同 descriptor 变更，走版本管理，不能在 run 中途静默替换。
+发布流水线必须校验 input/output schema、effect class、权限、不可变镜像 digest、SBOM/provenance、依赖扫描、egress 与 secret scope，并执行 dry-run 和故障注入。任一项缺失都拒绝该产品版本。外部服务即使采用开放协议，也必须被编译为仓库内受审的 `platform` descriptor 并绑定固定版本；运行时发现的新工具一律不可见。
 
 ## 工具可见性与发现
 
@@ -173,7 +130,7 @@ AgentWorker 在构建 LLM context 时，需要决定"这次调用给模型看哪
 tool_visibility_resolution
   输入：tenant_id, user_id, conversation_id, run_id, policy_snapshot_id, policy_hash
   过程：
-    1. 加载该 tenant 的 active 工具集（平台 + 自定义 + 已安装市场工具）
+    1. 加载当前 Lites 版本内已激活的 platform 工具集
     2. 过滤掉 deprecated 且无 successor 的工具
     3. 按 tenant policy 排除禁用工具
     4. 按 user 权限排除无权使用的工具
@@ -247,8 +204,8 @@ draft → pending_review → active → deprecated → retired
 
 | 状态 | 含义 | 谁可以使用 |
 | --- | --- | --- |
-| `draft` | 租户正在编辑，尚未提交 | 仅租户管理界面可见 |
-| `pending_review` | 已提交，等待审批 | 不可使用 |
+| `draft` | 产品仓库中的内部工具修订尚未进入候选版本 | 仅发布流水线可见 |
+| `pending_review` | 内部安全与产品审核中 | 不可使用 |
 | `rejected` | 审批未通过 | 不可使用，附带拒绝原因 |
 | `active` | 可正常使用 | AgentWorker 可发现和调用 |
 | `deprecated` | 仍可使用但不推荐，通常有后继版本 | 旧 run 可用，新 run 不选择 |
@@ -308,25 +265,23 @@ ToolWorker：再次用 input_schema 校验（防止绕过 AgentWorker 的直接�
 
 | 数据 | 存在哪里 | 由谁管理 |
 | --- | --- | --- |
-| Tool Descriptor（声明） | append-only 工具注册表历史表 + descriptor digest | Tool Management API |
+| Tool Descriptor（声明） | 版本化发布资产 + descriptor digest | Lites 发布流水线 |
 | 工具集快照 | 不可变快照表（含 descriptor hashes） | AgentWorker 在 run 创建时生成 |
-| Execution policy overlay | 版本化 deny-only 控制表 + 管理事件 | Security / Tool Management API；AgentWorker 和 ToolWorker 执行时重读 |
+| Execution policy overlay | 版本化 deny-only 控制表 + 管理事件 | 内部 Security 控制面；AgentWorker 和 ToolWorker 执行时重读 |
 | ToolCall 状态和结果 | EventStore（events + tool_calls 投影） | EventService |
 | 副作用记录 | Effect Ledger | ToolWorker 通过 EventService 写入 |
 | Schema / Descriptor 快照引用 | `context_manifest.tool_set_snapshot_id` + `tool_descriptor_hashes` | AgentWorker |
 
 工具注册表和 EventStore 通过 `tool_set_snapshot_id`、`tool_name + tool_version` 和 descriptor hash 关联。EventStore 不必保存 Tool Descriptor 的完整副本，但必须保存不可变快照引用和 digest；如果需要回溯"当时的工具定义是什么"，通过 snapshot 从注册表历史版本取回 canonical descriptor，并用 digest 校验。任何被历史 Run 引用的 descriptor 和快照只能标记 retired / hidden，不能硬删除。
 
-## 租户自定义工具的安全约束
+## 内部工具的安全约束
 
-租户自定义工具和平台工具的执行路径完全相同（ToolWorker → sandbox），但受到额外约束：
-
-- **trust_tier 上限**：租户自定义工具最高为 `semi_trusted`，不能声明 `trusted` 或 `privileged`。需要更高权限的工具必须走市场审核。
-- **effect_class 审核**：声明 `irreversible_write` 或 `compensatable_write` 的自定义工具需要管理员审批。
-- **网络出口**：默认 `deny_all`，只有显式声明 `egress_allowlist` 且审批通过后才开放。
-- **Secret 访问**：自定义工具只能访问租户自己创建的 secret scope，不能访问平台级 secret。
-- **资源限制**：自定义工具的 `resource_limits` 有租户级上限，不能超过租户配额。
-- **镜像来源**：自定义镜像必须通过扫描；或使用平台提供的基础镜像。
+- **来源锁定**：descriptor 的 `source` 必须为 `platform`；`tenant_custom`、`marketplace` 和未知来源在加载时 fail closed。
+- **effect_class 审核**：`irreversible_write` 或 `compensatable_write` 必须在行为 manifest 中声明，并绑定审批或 Repair 契约。
+- **网络出口**：默认 `deny_all`；只允许代码审查过的固定 host allowlist，禁止用户提供任意 endpoint。
+- **Secret 访问**：secret scope 必须随工具 descriptor 固化，模型输出不能扩大它。
+- **资源限制**：资源与执行时间受产品级上限约束，不能由租户或 prompt 提升。
+- **镜像来源**：只运行发布清单中按 digest 固定、具备 SBOM/provenance 和扫描结果的镜像。
 
 ## 工具依赖
 
@@ -350,5 +305,5 @@ tool_dependencies
 | Schema 不兼容变更走 major 版本 | 直接修改 schema 并期望所有 run 自动适配 |
 | 工具集快照保证 run 内一致性 | 在 run 执行中途切换工具版本 |
 | 两次 schema 校验（AgentWorker + ToolWorker） | 只在 AgentWorker 校验一次 |
-| 自定义工具经过签名、SBOM、扫描、dry-run、审批和沙箱验证 | 上传即 active |
+| 内部工具经过签名、SBOM、扫描、dry-run、审批和沙箱验证 | 暴露上传、市场安装或动态发现入口 |
 | 弃用工具时提供 successor 和共存期 | 直接删除正在被引用的工具版本 |

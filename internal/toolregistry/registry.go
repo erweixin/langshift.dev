@@ -408,7 +408,7 @@ func validSource(value Descriptor) bool {
 		return false
 	}
 	switch value.Source {
-	case "platform", "tenant_custom", "marketplace":
+	case "platform":
 		return true
 	default:
 		return false

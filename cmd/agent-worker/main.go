@@ -51,6 +51,7 @@ func main() {
 }
 
 func run(parent context.Context, configuration config, logger *slog.Logger) error {
+	localCompose := configuration.environment == "engineering-test" && os.Getenv("LITES_LOCAL_COMPOSE") == "true"
 	executionIDKey, err := readBase64(configuration.executionIDKeyFile, 32)
 	if err != nil {
 		return errors.New("load execution ID key")
@@ -106,19 +107,27 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("connect Agent database")
 	}
 	defer pool.Close()
-	s3Client, err := s3store.NewClient(parent, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecure})
+	s3Client, err := s3store.NewClient(parent, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecure, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure object store")
 	}
 	blobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 32 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
-	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecure})
+	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecure, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure Vault")
 	}
-	payloads := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: blobs}
+	payloadKeys, err := vaultkeys.ProviderForEnvironment(configuration.environment, localCompose, os.Getenv("LITES_LOCAL_PAYLOAD_KEY_SEED_FILE"), vaultReader, configuration.vaultKeyPrefix)
+	if err != nil {
+		return errors.New("configure payload keys")
+	}
+	payloads := payload.EnvelopeStore{Keys: payloadKeys, Blobs: blobs}
 	providers, err := provider.LoadRegistryFile(configuration.providerPath, configuration.providerHash)
 	if err != nil {
 		return errors.New("load provider registry")
+	}
+	providerRoots, err := providerRootCAs(configuration.providerRootCAFile)
+	if err != nil {
+		return errors.New("load provider CA")
 	}
 	connection, js, err := natsjs.Connect(natsjs.ConnectionConfig{URLs: configuration.natsURLs, Name: configuration.natsName, CredentialsFile: configuration.natsCredentialsFile, RootCAFile: configuration.natsCAFile, ClientCertificateFile: configuration.natsCertFile, ClientKeyFile: configuration.natsKeyFile, ConnectTimeout: 5 * time.Second, ReconnectWait: 2 * time.Second, AllowInsecureDevelopment: configuration.allowInsecure, OnDisconnect: func(err error) { logger.Warn("nats disconnected", "error", err) }, OnReconnect: func(url string) { logger.Info("nats reconnected", "url", url) }})
 	if err != nil {
@@ -146,7 +155,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		{KV: vaultReader, Prefix: configuration.providerSecretPrefix, Field: "api_key"},
 		{KV: vaultReader, Prefix: configuration.byokSecretPrefix, Field: "api_key"},
 	}}
-	gateway := llmgateway.Executor{Store: attempts, Registry: providers, Clients: llmgateway.ClientFactory{Policy: egress.EndpointPolicy{Resolver: egress.NetResolver{}}, Secrets: secretSource}, Evidence: llmgateway.PayloadEvidence{Payloads: payloads}}
+	gateway := llmgateway.Executor{Store: attempts, Registry: providers, Clients: llmgateway.ClientFactory{Policy: egress.EndpointPolicy{Resolver: egress.NetResolver{}, PrivateEngineeringTestHost: configuration.privateEngineeringProviderHost}, Secrets: secretSource, RootCAs: providerRoots}, Evidence: llmgateway.PayloadEvidence{Payloads: payloads}}
 	production, err := agentworker.NewProductionRuntime(agentworker.ProductionConfig{Pool: pool, Payloads: payloads, Runs: runs, Attempts: attempts, Billing: billing, Gateway: gateway, Providers: providers, PromptArtifactPath: configuration.promptPath, PromptArtifactHash: configuration.promptHash, RouteArtifactPath: configuration.routePath, RouteArtifactHash: configuration.routeHash, ToolArtifactPath: configuration.toolPath, ToolArtifactHash: configuration.toolHash, ConsumerName: configuration.consumerName, WorkerID: configuration.workerID, Actor: actor, IDKey: agentIDKey, MaximumOutputTokens: configuration.maximumOutputTokens, MaximumCommand: configuration.maximumCommand, MaximumMessageBytes: configuration.maximumMessageBytes, MaximumMessages: configuration.maximumMessages, MaximumCalls: configuration.maximumCalls, HeartbeatInterval: configuration.agentHeartbeat, PrepareTTL: configuration.prepareTTL, CompletionTTL: configuration.completionTTL, ReconciliationDelay: configuration.reconciliationDelay, ApprovalTTL: configuration.approvalTTL, BucketTTL: configuration.bucketTTL, Metrics: telemetry.AgentMetrics(), Notification: agentworker.PlanSchedule{QueueClass: "interactive", ResourceClass: "notification", Priority: 50, CostUnits: 1, MaxAttempts: 10}})
 	if err != nil {
 		return errors.New("compose production AgentWorker")
@@ -195,6 +204,24 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return nil
 	}
 	return runErr
+}
+
+func providerRootCAs(path string) (*x509.CertPool, error) {
+	if path == "" {
+		return nil, nil
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, err
+	}
+	if !roots.AppendCertsFromPEM(contents) {
+		return nil, errors.New("provider CA contains no certificates")
+	}
+	return roots, nil
 }
 
 func openPool(ctx context.Context, databaseURL string, maximum, minimum int32) (*pgxpool.Pool, error) {

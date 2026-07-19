@@ -34,7 +34,11 @@ var (
 
 var (
 	bucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
-	objectPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+	// Colons are permitted inside a path segment because durable event object
+	// IDs use the stable "aggregate-id:event-stage" form. They are safe in an
+	// S3 URL path and remain subject to the traversal and canonical-path checks
+	// in validObjectKey.
+	objectPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 	digestRE      = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 

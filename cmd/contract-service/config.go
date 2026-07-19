@@ -34,6 +34,7 @@ type config struct {
 	idempotencyTTL, proposalTTL                                                           time.Duration
 	traceSampleRatio                                                                      float64
 	allowInsecureDevelopment                                                              bool
+	internalUsageWorkloadIdentities                                                       []string
 }
 
 type secretBundle struct {
@@ -94,6 +95,7 @@ func loadConfig() (config, error) {
 		environment: os.Getenv("LITES_ENVIRONMENT"), serviceVersion: os.Getenv("LITES_VERSION"), region: os.Getenv("LITES_REGION"),
 		otlpEndpoint: os.Getenv("OTLP_GRPC_ENDPOINT"), otlpCAFile: os.Getenv("OTLP_ROOT_CA_FILE"), otlpCertFile: os.Getenv("OTLP_CLIENT_CERT_FILE"), otlpKeyFile: os.Getenv("OTLP_CLIENT_KEY_FILE"), otlpTLSName: os.Getenv("OTLP_TLS_SERVER_NAME"), otlpBearerTokenFile: os.Getenv("OTLP_BEARER_TOKEN_FILE"),
 		idempotencyTTL: idempotencyTTL, proposalTTL: proposalTTL, traceSampleRatio: traceSampleRatio, allowInsecureDevelopment: allow,
+		internalUsageWorkloadIdentities: splitNonEmpty(env("INTERNAL_USAGE_WORKLOAD_IDENTITIES", "spiffe://lites.internal/workload/llm-gateway,spiffe://lites.internal/workload/agent-control-plane,spiffe://lites.internal/workload/tool-worker")),
 	}
 	return value, value.validate()
 }
@@ -105,7 +107,7 @@ func (value config) validate() error {
 			return errors.New("required contract service configuration is missing")
 		}
 	}
-	if value.listenAddress == value.healthAddress || value.allowInsecureDevelopment && !listenLoopback(value.healthAddress) || value.trustedAudience != "contract-service" || value.trustedIssuer == value.trustedAudience || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 256 || value.idempotencyTTL < time.Hour || value.idempotencyTTL > 7*24*time.Hour || value.proposalTTL != 5*time.Minute || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
+	if value.listenAddress == value.healthAddress || value.allowInsecureDevelopment && !listenLoopback(value.healthAddress) || value.trustedAudience != "contract-service" || value.trustedIssuer == value.trustedAudience || value.databaseMaxConnections < 8 || value.databaseMaxConnections > 256 || value.idempotencyTTL < time.Hour || value.idempotencyTTL > 7*24*time.Hour || value.proposalTTL != 5*time.Minute || value.traceSampleRatio < 0 || value.traceSampleRatio > 1 || len(value.internalUsageWorkloadIdentities) == 0 || (value.serverCertificateFile == "") != (value.serverKeyFile == "") || (value.epochCertFile == "") != (value.epochKeyFile == "") || (value.vaultCertFile == "") != (value.vaultKeyFile == "") || (value.otlpCertFile == "") != (value.otlpKeyFile == "") {
 		return errors.New("contract service configuration is invalid")
 	}
 	epochEndpoint, err := url.Parse(value.epochURL)
@@ -179,6 +181,19 @@ func env(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func splitNonEmpty(value string) []string {
+	seen := map[string]bool{}
+	result := []string{}
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" && !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func optionalBool(name string, fallback bool) (bool, error) {

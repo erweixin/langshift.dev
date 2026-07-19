@@ -62,11 +62,11 @@ Sweeper 与 Repair API 互补：Sweeper 自动、有界、无需审批，只处�
 
 ## 软件供应链与生产镜像
 
-十一个 Go 进程共用一份参数化生产 `Dockerfile`，但每个镜像只包含对应静态二进制、CA 根证书、时区数据库、许可证和校验过的迁移源文件。`api-gateway` 是唯一公网入口，通过短时签名信任上下文和 mTLS 分别调用 Identity Service、Realtime Gateway 与 Behavior Control Plane；行为控制平面的自动回滚使用隔离的内部 mTLS listener 和精确 SPIFFE 身份，不暴露给公网网关。`store-epoch-authority` 从 PostgreSQL 故障域之外的持久文件提供 mTLS + bearer 保护的恢复世代安全锚，并在每次读取时重新校验；`identity-mail-worker` 与 claim/import worker 使用独立 durable consumer、健康检查和扩缩容边界，SMTP 故障不能阻断匿名 claim。最终层以 `scratch` 为根文件系统，固定数值 UID/GID `65532:65532`，不包含 shell、包管理器或动态链接器；入口只能是 `/lites`。构建阶段的 Go 官方镜像同时固定可读 tag 与 OCI index digest，避免 tag 被重写后静默改变构建输入。
+Go 服务与 worker 共用一份参数化生产 `Dockerfile`，但每个镜像只包含对应静态二进制、CA 根证书、时区数据库、许可证和校验过的迁移源文件。实际发布镜像目录由供应链工作流和 Helm workload 清单共同校验，文档不维护容易漂移的固定数量。`api-gateway` 是唯一公网入口，通过短时签名信任上下文和 mTLS 分别调用 Identity Service、Realtime Gateway 与 Behavior Control Plane；行为控制平面的自动回滚使用隔离的内部 mTLS listener 和精确 SPIFFE 身份，不暴露给公网网关。`store-epoch-authority` 从 PostgreSQL 故障域之外的持久文件提供 mTLS + bearer 保护的恢复世代安全锚，并在每次读取时重新校验；`identity-mail-worker` 与 claim/import worker 使用独立 durable consumer、健康检查和扩缩容边界，SMTP 故障不能阻断匿名 claim。最终层以 `scratch` 为根文件系统，固定数值 UID/GID `65532:65532`，不包含 shell、包管理器或动态链接器；入口只能是 `/lites`。构建阶段的 Go 官方镜像同时固定可读 tag 与 OCI index digest，避免 tag 被重写后静默改变构建输入。
 
 供应链流水线分成两个权限域：
 
-- PR 和主分支都执行 `go mod verify`、`govulncheck`、Trivy 文件系统扫描、CycloneDX 模块/逐服务 SBOM、十一个镜像构建、shell-free/non-root 检查和镜像 HIGH/CRITICAL 漏洞门禁。
+- PR 和主分支都执行 `go mod verify`、`govulncheck`、Trivy 文件系统扫描、CycloneDX 模块/逐服务 SBOM、发布清单内全部镜像构建、shell-free/non-root 检查和镜像 HIGH/CRITICAL 漏洞门禁。
 - 只有 `refs/heads/main` 且所有前置门禁通过后，发布 job 才获得 `packages: write` 和 `id-token: write`。它发布 `linux/amd64` 与 `linux/arm64` OCI index，生成 BuildKit `mode=max` provenance 和镜像 SBOM，再对不可变 digest 做 Cosign keyless 签名，并把证书身份严格验证为当前仓库的 `supply-chain.yml@refs/heads/main`。
 
 所有第三方 GitHub Action 必须固定 40 位 commit SHA；版本注释只用于人工升级提示。仓库内的静态检查会拒绝 tag、branch 和短 SHA。Dockerfile frontend、Buildx、BuildKit builder、扫描器和签名工具本身也固定版本或 OCI digest，升级时必须核对上游安全公告、替换 SHA、重新生成证据，不能使用 `latest`。
@@ -182,3 +182,15 @@ EventStore、payload/object、workspace revision、tool/profile/policy snapshot 
 账户删除的生产权限、六面回执、对象全版本删除、Vault Transit 密钥销毁和 PITR 后重放步骤见 [account-erasure runbook](../runbooks/account-erasure.md)。任何一面缺少当前 Store Epoch 回执，都不得向用户宣告删除完成，也不得在恢复环境开放流量。
 
 `store_epoch` 的持久化合约定义在 [concurrency-and-durability.md](./concurrency-and-durability.md)。运维侧需要告警：非当前 epoch command 被拒绝、恢复时外部 epoch 未轮换、EventStore 尚未安装新 epoch 就启动消费者、publisher 发布非当前 epoch outbox row。PITR runbook 必须按“停入口与消费者 → 外部控制面 CAS 轮换 epoch → 恢复并安装 epoch → 重建合法 command → 灰度开放消费者 → 开放入口”的顺序演练。
+
+## Engineering RC 的本地门禁
+
+macOS 上的统一工程门禁是 `npm run verify:macos`。它只接受干净工作树，并将 Go 测试限制在 `./cmd/...` 与 `./internal/...`；同时执行 Web lint、TypeScript、组件测试、构建、当前契约、真实 PostgreSQL 集成，以及没有 Demo mode、没有 Playwright 路由 mock 的职业迁移主旅程。浏览器阶段通过 `scripts/macos-product-stack.sh` 自行构建并启动 Gateway、业务服务、内部 Agent、确定性 Provider、STARTTLS 邮箱夹具和 Docker Desktop 基础设施，随后执行数据库备份/恢复 smoke；缺少任一依赖时门禁失败，不能降级为 fixture。主旅程不执行不可信代码，runtime 的状态和故障适配器由 Go 门禁验证，不能据此宣称 Firecracker 隔离通过。
+
+日常 `npm test` 和 `npm run contracts:lint` 只检查当前工程契约。旧 Stage 1 冻结快照通过 `npm run contracts:lint:historical-stage1` 显式检查，仅用于追溯；它的失败不能被改写为当前实现失败，它的通过也不能计入当前 RC 证据。
+
+同一门禁通过已认证的 GitHub CLI 抓取完整 issue 分页，并要求当前提交上没有未解决 P0、P1 或未分类 issue；快照超过 24 小时、工作树不干净、分页不完整或严重级别标签不唯一都会失败。RC 构建器会再次校验并收录该报告，不能只凭本地手写清单宣称阻断问题为零。
+
+门禁报告写入被忽略的 `.tmp/verification/macos-engineering-rc.json`。只有同一干净 commit 的全部检查通过时，结果才是 `engineering_rc_passed`。随后用 `npm run release:engineering-rc` 生成源码依赖 SBOM、行为 manifest、迁移清单、接口覆盖、发布说明与已知限制；该构建器固定写入 `commercialGA: false`。
+
+`npm run verify:production-contracts` 单独执行 Helm/OpenTofu render、策略检查和生产报告验证器的正反 fixture。成功结果只能是 `fixture_validated`，不会证明 Firecracker、HA、容量、SLO、RPO、RTO、渗透测试或 pilot 已在生产完成。Docker Desktop 未启动或 render 工具不可用时相应检查必须是 `failed`。

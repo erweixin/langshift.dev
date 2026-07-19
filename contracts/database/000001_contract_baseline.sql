@@ -22,9 +22,14 @@ CREATE TABLE IF NOT EXISTS "identity"."users" (
   normalized_email text NOT NULL,
   email_verified_at timestamptz,
   locale text NOT NULL DEFAULT 'en',
+  timezone text NOT NULL DEFAULT 'UTC',
+  display_name text,
   status text NOT NULL,
   deletion_requested_at timestamptz,
-  UNIQUE ("normalized_email")
+  UNIQUE ("normalized_email"),
+  CHECK (locale IN ('en','zh-CN')),
+  CHECK (char_length(timezone) BETWEEN 1 AND 128),
+  CHECK (display_name IS NULL OR char_length(display_name) BETWEEN 1 AND 200)
 );
 
 CREATE TABLE IF NOT EXISTS "identity"."password_credentials" (
@@ -1139,6 +1144,7 @@ CREATE TABLE IF NOT EXISTS "product"."byok_credentials" (
   bound_host text NOT NULL,
   secret_ref text NOT NULL,
   secret_version text NOT NULL,
+  secret_hint text NOT NULL DEFAULT '••••',
   status text NOT NULL,
   last_validated_at timestamptz,
   UNIQUE ("tenant_id", "user_id", "provider_id", "bound_host")
@@ -1153,12 +1159,13 @@ CREATE POLICY "byok_credentials_tenant_isolation" ON "product"."byok_credentials
 CREATE TABLE IF NOT EXISTS "product"."memory_policies" (
   tenant_id uuid NOT NULL,
   user_id uuid NOT NULL,
-  version bigint NOT NULL DEFAULT 1,
+  version bigint NOT NULL DEFAULT 1 CHECK (version > 0),
   enabled boolean NOT NULL,
   retention_days integer,
   allowed_kinds jsonb NOT NULL,
   updated_at timestamptz NOT NULL,
-  PRIMARY KEY (tenant_id,user_id)
+  PRIMARY KEY (tenant_id,user_id),
+  CHECK ((enabled AND retention_days BETWEEN 1 AND 3650 AND jsonb_typeof(allowed_kinds)='array' AND jsonb_array_length(allowed_kinds) BETWEEN 1 AND 4) OR (NOT enabled AND retention_days IS NULL AND allowed_kinds='[]'::jsonb))
 );
 
 ALTER TABLE "product"."memory_policies" ENABLE ROW LEVEL SECURITY;
@@ -1166,6 +1173,25 @@ ALTER TABLE "product"."memory_policies" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "product"."memory_policies" FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY "memory_policies_tenant_isolation" ON "product"."memory_policies" USING (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid);
+
+CREATE TABLE IF NOT EXISTS "product"."settings_access_audit" (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  session_id uuid NOT NULL,
+  action text NOT NULL CHECK (action IN ('byok_listed','byok_configured','byok_deleted','memory_policy_read','memory_policy_updated')),
+  resource_id uuid,
+  request_id text NOT NULL CHECK (char_length(request_id) BETWEEN 1 AND 200),
+  occurred_at timestamptz NOT NULL
+);
+
+ALTER TABLE "product"."settings_access_audit" ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE "product"."settings_access_audit" FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY "settings_access_audit_tenant_isolation" ON "product"."settings_access_audit" USING (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('lites.tenant_id', true), '')::uuid);
+
+CREATE TRIGGER "settings_access_audit_append_only" BEFORE UPDATE OR DELETE ON "product"."settings_access_audit" FOR EACH ROW EXECUTE FUNCTION "agent".reject_append_only_mutation();
 
 CREATE TABLE IF NOT EXISTS "product"."data_export_requests" (
   id uuid PRIMARY KEY,
@@ -2267,6 +2293,8 @@ ALTER TABLE "product"."reminder_deliveries" ADD CONSTRAINT "reminder_deliveries_
 ALTER TABLE "product"."byok_credentials" ADD CONSTRAINT "byok_credentials_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "product"."memory_policies" ADD CONSTRAINT "memory_policies_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
+
+ALTER TABLE "product"."settings_access_audit" ADD CONSTRAINT "settings_access_audit_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "product"."data_export_requests" ADD CONSTRAINT "data_export_requests_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "identity"."tenants" ("id") ON DELETE CASCADE;
 

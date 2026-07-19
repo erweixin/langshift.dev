@@ -77,12 +77,25 @@ func (service SubmissionService) Create(ctx context.Context, command productapi.
 		if _, e := tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TenantID); e != nil {
 			return idempotency.Response{}, e
 		}
+		var scopedMissionID, scopedRouteRevisionID string
+		var scopedFocusVersion uint64
+		if e := tx.QueryRow(ctx, `SELECT mission_id::text,route_revision_id::text,focus_version FROM product.daily_tasks WHERE tenant_id=$1 AND user_id=$2 AND id=$3`, command.TenantID, command.UserID, command.DailyTaskID).Scan(&scopedMissionID, &scopedRouteRevisionID, &scopedFocusVersion); e != nil {
+			return idempotency.Response{}, e
+		}
+		var admissible bool
+		if e := tx.QueryRow(ctx, `SELECT agent.lock_owned_daily_planning_mission($1,$2,$3,$4,$5)`, command.TenantID, command.UserID, scopedMissionID, scopedRouteRevisionID, scopedFocusVersion).Scan(&admissible); e != nil || !admissible {
+			return idempotency.Response{}, ErrRouteConflict
+		}
 		var current producttask.Task
 		var scheduled time.Time
 		var status string
-		e := tx.QueryRow(ctx, `SELECT id::text,version,mission_id::text,route_revision_id::text,status,scheduled_for FROM product.daily_tasks WHERE tenant_id=$1 AND user_id=$2 AND id=$3 FOR UPDATE`, command.TenantID, command.UserID, command.DailyTaskID).Scan(&current.ID, &current.Version, &current.MissionID, &current.RouteRevisionID, &status, &scheduled)
+		var focusVersion uint64
+		e := tx.QueryRow(ctx, `SELECT id::text,version,mission_id::text,route_revision_id::text,status,scheduled_for,focus_version FROM product.daily_tasks WHERE tenant_id=$1 AND user_id=$2 AND id=$3 FOR UPDATE`, command.TenantID, command.UserID, command.DailyTaskID).Scan(&current.ID, &current.Version, &current.MissionID, &current.RouteRevisionID, &status, &scheduled, &focusVersion)
 		if e != nil {
 			return idempotency.Response{}, e
+		}
+		if current.MissionID != scopedMissionID || current.RouteRevisionID != scopedRouteRevisionID || focusVersion != scopedFocusVersion {
+			return idempotency.Response{}, ErrRouteConflict
 		}
 		current.Status, current.ScheduledFor = producttask.Status(status), scheduled
 		next, e := current.Transition(producttask.TransitionCommand{ExpectedVersion: command.ExpectedTaskVersion, Next: producttask.Submitted, SubmissionID: submissionID, Now: service.now()})

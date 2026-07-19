@@ -1,6 +1,7 @@
 package vaultkeys
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,7 +11,7 @@ import (
 
 func TestPurgeTransitKeyEnablesDeletionAndVerifiesAbsence(t *testing.T) {
 	var configured, deleted bool
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch {
 		case request.Method == http.MethodPut && request.URL.Path == "/v1/transit/keys/memory/user/config":
 			configured = true
@@ -28,7 +29,13 @@ func TestPurgeTransitKeyEnablesDeletionAndVerifiesAbsence(t *testing.T) {
 		default:
 			t.Fatalf("unexpected Vault request %s %s", request.Method, request.URL.Path)
 		}
-	}))
+	})
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("IPv4 loopback listener unavailable: %v", err)
+	}
+	server := &httptest.Server{Listener: listener, Config: &http.Server{Handler: handler}}
+	server.Start()
 	defer server.Close()
 	reader, err := NewClientReader(ClientConfig{Address: server.URL, Mount: "transit", AllowInsecureDevelopment: true})
 	if err != nil {
@@ -49,6 +56,15 @@ func TestClientConfigurationRejectsRemotePlaintextAndURLCredentials(t *testing.T
 	}
 	if _, err := NewClientReader(ClientConfig{Address: "https://token@vault.internal:8200", Mount: "secret", TokenFile: "/run/secrets/token"}); err == nil {
 		t.Fatal("expected URL credential rejection")
+	}
+}
+
+func TestClientConfigurationAllowsOnlyExplicitLocalComposeVault(t *testing.T) {
+	if _, err := NewClientReader(ClientConfig{Address: "http://vault:8200", Mount: "secret", AllowInsecureDevelopment: true, AllowLocalCompose: true}); err != nil {
+		t.Fatalf("local Compose Vault rejected: %v", err)
+	}
+	if _, err := NewClientReader(ClientConfig{Address: "http://other:8200", Mount: "secret", AllowInsecureDevelopment: true, AllowLocalCompose: true}); err == nil {
+		t.Fatal("arbitrary local Compose Vault accepted")
 	}
 }
 

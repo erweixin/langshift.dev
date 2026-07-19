@@ -7,6 +7,8 @@ import { calculateFinalEvidenceManifestHash, requiredFinalEvidencePaths } from "
 import { validateLegalGovernance } from "./verify-legal-governance.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const migrationManifest = JSON.parse(await readFile(resolve(root, "deploy/migrations/manifest.json"), "utf8"));
+const currentMigration = migrationManifest.migrations.at(-1).version;
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const results = [];
 const check = (id, status, details, evidence = null) => results.push({ id, status, details, evidence });
@@ -171,7 +173,7 @@ for (const target of ["compose", "helm-tofu", "official-cloud"]) {
   const layoutKey = `deployment_${target.replaceAll("-", "_")}`;
   const path = releaseEvidencePath(layoutKey);
   const rawEvidence = await blobEvidence(releaseRawPath(layoutKey));
-  const report = await signedJsonEvidence(path, "automatedReports", (value) => value.reportVersion === "1.0.0" && value.kind === "deployment-drill" && value.target === target && value.status === "passed" && value.worktreeDirty === false && value.sourceCommit === rc.value?.sourceCommit && value.currentMigration === 84 && value.requiredConsecutivePasses === 3 && value.rawEvidence?.records === 15 && value.rawEvidence?.sha256 === rawEvidence.hash && ["freshInstall", "upgrade", "backup", "restore", "rollback"].every((operation) => value.operations?.[operation]?.consecutivePasses === 3 && value.operations[operation].attempts?.length === 3) && value.rcHash === rc.value?.releaseCandidateHash);
+  const report = await signedJsonEvidence(path, "automatedReports", (value) => value.reportVersion === "1.0.0" && value.kind === "deployment-drill" && value.target === target && value.status === "passed" && value.worktreeDirty === false && value.sourceCommit === rc.value?.sourceCommit && value.currentMigration === currentMigration && value.requiredConsecutivePasses === 3 && value.rawEvidence?.records === 15 && value.rawEvidence?.sha256 === rawEvidence.hash && ["freshInstall", "upgrade", "backup", "restore", "rollback"].every((operation) => value.operations?.[operation]?.consecutivePasses === 3 && value.operations[operation].attempts?.length === 3) && value.rcHash === rc.value?.releaseCandidateHash);
   check(`DEPLOYMENT-${target.toUpperCase()}`, report.passed && report.signatureVerified ? "passed" : "pending", `${target} needs signed RC-bound evidence for three consecutive fresh-install, upgrade, backup, restore, and rollback passes`, signedDetails(report, path));
 }
 

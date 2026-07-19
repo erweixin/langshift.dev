@@ -283,6 +283,31 @@ func TestPublicIdentityRouteRequiresAllowedBrowserOriginAndCarriesNoIdentity(t *
 	}
 }
 
+func TestEngineeringBoundaryAllowsOnlyExplicitHTTPLoopbackOrigin(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newBoundary := func(allow bool) TrustBoundary {
+		return TrustBoundary{SigningKey: privateKey, SigningKeyID: "key", Issuer: "gateway", Audience: "identity", TTL: time.Minute, FingerprintPepper: bytes.Repeat([]byte{0x51}, 32), PublicOrigins: []string{"http://127.0.0.1:3118", "http://app.lites.test"}, AllowInsecureLoopbackOrigins: allow, RoutePolicy: IdentityRoutePolicy}
+	}
+	assertStatus := func(boundary TrustBoundary, origin string, want int) {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "https://api.lites.dev/v1/onboarding-sessions", nil)
+		request.Header.Set("Origin", origin)
+		request.Header.Set("Sec-Fetch-Site", "same-origin")
+		recorder := httptest.NewRecorder()
+		boundary.Wrap(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusNoContent) })).ServeHTTP(recorder, request)
+		if recorder.Code != want {
+			t.Fatalf("allow=%t origin=%q status=%d want=%d body=%s", boundary.AllowInsecureLoopbackOrigins, origin, recorder.Code, want, recorder.Body.String())
+		}
+	}
+	assertStatus(newBoundary(true), "http://127.0.0.1:3118", http.StatusNoContent)
+	assertStatus(newBoundary(false), "http://127.0.0.1:3118", http.StatusForbidden)
+	assertStatus(newBoundary(true), "http://app.lites.test", http.StatusForbidden)
+	assertStatus(newBoundary(true), "http://localhost:3118", http.StatusForbidden)
+}
+
 func TestIdentityRoutePolicyFailsClosedForUnknownRoute(t *testing.T) {
 	publicStatus := httptest.NewRequest(http.MethodGet, "https://api.lites.dev/v1/public/status", nil)
 	if got := IdentityRoutePolicy(publicStatus); got != PublicAuthentication {

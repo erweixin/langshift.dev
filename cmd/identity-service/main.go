@@ -51,6 +51,7 @@ func main() {
 func run(parent context.Context, configuration config, logger *slog.Logger) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	localCompose := configuration.environment == "engineering-test" && os.Getenv("LITES_LOCAL_COMPOSE") == "true"
 	secrets, err := loadSecretBundle(configuration.secretBundleFile)
 	if err != nil {
 		return err
@@ -88,17 +89,21 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("connect database")
 	}
 	defer pool.Close()
-	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure object store")
 	}
 	payloadBlobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 32 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
 	importSources := s3store.Store{Client: s3Client, Bucket: configuration.importBucket, Prefix: configuration.importPrefix, MaxBytes: 5 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID}
-	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSServerName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSServerName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure Vault")
 	}
-	valkeyClient, err := platformratelimit.NewClient(platformratelimit.ClientConfig{Addresses: configuration.valkeyAddresses, Username: configuration.valkeyUsername, PasswordFile: configuration.valkeyPasswordFile, RootCAFile: configuration.valkeyCAFile, ClientCertificateFile: configuration.valkeyCertFile, ClientKeyFile: configuration.valkeyKeyFile, TLSServerName: configuration.valkeyTLSName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	payloadKeys, err := vaultkeys.ProviderForEnvironment(configuration.environment, localCompose, os.Getenv("LITES_LOCAL_PAYLOAD_KEY_SEED_FILE"), vaultReader, configuration.vaultKeyPrefix)
+	if err != nil {
+		return errors.New("configure payload keys")
+	}
+	valkeyClient, err := platformratelimit.NewClient(platformratelimit.ClientConfig{Addresses: configuration.valkeyAddresses, Username: configuration.valkeyUsername, PasswordFile: configuration.valkeyPasswordFile, RootCAFile: configuration.valkeyCAFile, ClientCertificateFile: configuration.valkeyCertFile, ClientKeyFile: configuration.valkeyKeyFile, TLSServerName: configuration.valkeyTLSName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure Valkey")
 	}
@@ -109,13 +114,22 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("identity dependency is not ready")
 	}
 	dependencyCancel()
-	payloadStore := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: payloadBlobs}
+	payloadStore := payload.EnvelopeStore{Keys: payloadKeys, Blobs: payloadBlobs}
 	hasher := password.Hasher{Parameters: password.ProductionParameters(), Pepper: secrets.PasswordPepper, Random: rand.Reader}
 	dummyHash, dummyParameters, err := hasher.Hash("lites timing equalizer password")
 	if err != nil {
 		return errors.New("prepare password timing equalizer")
 	}
-	rangeHTTPClient := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13}, ForceAttemptHTTP2: true, MaxIdleConns: 32, MaxIdleConnsPerHost: 8, IdleConnTimeout: 30 * time.Second}, Timeout: 5 * time.Second}
+	rangeTLS := &tls.Config{MinVersion: tls.VersionTLS13}
+	if configuration.passwordRangeCAFile != "" {
+		contents, readErr := os.ReadFile(configuration.passwordRangeCAFile)
+		roots, rootErr := x509.SystemCertPool()
+		if readErr != nil || rootErr != nil || !roots.AppendCertsFromPEM(contents) {
+			return errors.New("password range CA is invalid")
+		}
+		rangeTLS.RootCAs = roots
+	}
+	rangeHTTPClient := &http.Client{Transport: &http.Transport{Proxy: nil, TLSClientConfig: rangeTLS, ForceAttemptHTTP2: true, MaxIdleConns: 32, MaxIdleConnsPerHost: 8, IdleConnTimeout: 30 * time.Second}, Timeout: 5 * time.Second}
 	rangeChecker, err := password.NewRangeChecker(configuration.passwordRangeURL, configuration.passwordRangeAllowedHosts, rangeHTTPClient)
 	if err != nil {
 		return errors.New("configure password compromise screen")
@@ -152,7 +166,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	claimStore.Appender = appender
 	claimService.Store = claimStore
 	routePreviewService.Appender = appender
-	handler := identityapi.Handler{Service: service, Sessions: service, Passwords: service, Emails: service, Accounts: service, Invitations: service, Memberships: service, Onboarding: onboarding, Claims: claimService, Routes: routePreviewService, AnonymousCSRFKey: secrets.AnonymousCSRFKey, RateLimiter: platformratelimit.Limiter{Client: valkeyClient, Namespace: "lites"}, RateLimitPepper: secrets.RateLimitPepper}
+	handler := identityapi.Handler{Service: service, Sessions: service, Passwords: service, Emails: service, Accounts: service, Tenants: service, Invitations: service, Memberships: service, Onboarding: onboarding, Claims: claimService, Routes: routePreviewService, AnonymousCSRFKey: secrets.AnonymousCSRFKey, RateLimiter: platformratelimit.Limiter{Client: valkeyClient, Namespace: "lites"}, RateLimitPepper: secrets.RateLimitPepper}
 	verifier := trustedcontext.Verifier{Issuer: configuration.trustedIssuer, Audience: configuration.trustedAudience, Keys: keys, KeyWindows: windows, MaximumTTL: 5 * time.Minute, ClockSkew: 5 * time.Second}
 	application := telemetry.WrapHTTP(serviceauth.Middleware{Verifier: verifier, RequireVerifiedClientCertificate: !configuration.allowInsecureDevelopment}.Wrap(handler))
 	tlsConfig, err := newServerTLSConfig(configuration)

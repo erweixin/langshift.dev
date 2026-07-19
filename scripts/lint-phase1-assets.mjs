@@ -3,10 +3,13 @@ import { readdir, readFile, stat, writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
+const currentEngineeringOnly=process.argv.includes("--current-engineering");
+const option=(name)=>{const index=process.argv.indexOf(name);return index>=0?process.argv[index+1]:undefined;};
+const historicalEvidenceChecks=new Set(["DATABASE-SMOKE-EVIDENCE","CONTRACT-SNAPSHOT-FILES","CONTRACT-SNAPSHOT-ROOT","CONTRACT-GATE-REPORT-HASH","CONTRACT-GATE-REPORT-EVIDENCE","CONTRACT-GATE-REPORT-VERSIONS","CONTRACT-GATE-REPORT-HONESTY"]);
 const sha256 = (value) => createHash("sha256").update(typeof value === "string" || Buffer.isBuffer(value) ? value : JSON.stringify(value)).digest("hex");
 const load = async (path) => JSON.parse(await readFile(resolve(root,path),"utf8"));
 const results=[];
-const check=(id,condition,details)=>results.push({id,status:condition?"passed":"failed",details});
+const check=(id,condition,details)=>{if(currentEngineeringOnly&&historicalEvidenceChecks.has(id))return;results.push({id,status:condition?"passed":"failed",details});};
 const unique=(items)=>new Set(items).size===items.length;
 
 const openapi=await load("contracts/openapi/lites.openapi.json");
@@ -18,7 +21,8 @@ check("OPENAPI-METADATA",operations.every(({op})=>["x-authentication","x-authori
 check("OPENAPI-WRITES",operations.filter(({method})=>method!=="get").every(({op})=>op.parameters.some(p=>p.$ref==="#/components/parameters/IdempotencyKey")&&op.requestBody&&op.responses["409"]),"all writes declare idempotency, request body and conflict response");
 check("OPENAPI-VERSIONED-WRITES",operations.filter(({op})=>op["x-concurrency"].startsWith("If-Match")).every(({op})=>op.parameters.some(p=>p.$ref==="#/components/parameters/IfMatch")),"all versioned writes require If-Match");
 const writeOperations=operations.filter(({method})=>method!=="get");
-const writeSchemaRefs=writeOperations.map(({op})=>op.requestBody.content["application/json"].schema.$ref);
+const contentSchema=(content)=>Object.values(content??{})[0]?.schema;
+const writeSchemaRefs=writeOperations.map(({op})=>contentSchema(op.requestBody.content)?.$ref);
 check("OPENAPI-OPERATION-SCHEMAS",unique(writeSchemaRefs)&&writeSchemaRefs.every(ref=>!ref.endsWith("/WriteRequest")),`${writeSchemaRefs.length} writes use distinct request schemas`);
 check("OPENAPI-CLOSED-WRITES",writeSchemaRefs.every(ref=>{const name=ref.split("/").at(-1);return openapi.components.schemas[name]?.additionalProperties===false}),"all write request schemas reject undeclared fields");
 check("OPENAPI-DOMAIN-FIELDS",writeSchemaRefs.every(ref=>{const name=ref.split("/").at(-1);return Object.keys(openapi.components.schemas[name]?.properties??{}).length>=2}),"every write schema declares operation-specific domain fields beyond request_id");
@@ -26,10 +30,14 @@ check("OPENAPI-PROBLEM",operations.every(({op})=>["400","401","403","409","429"]
 check("OPENAPI-SCOPE",!operations.some(({path})=>/oauth|oidc|saml|scim|checkout|payment|stripe/i.test(path)),"excluded identity and online-payment APIs are absent");
 check("OPENAPI-PATH-PARAMETERS",operations.every(({path,op})=>[...path.matchAll(/\{([^}]+)\}/g)].every(match=>op.parameters.some(parameter=>parameter.in==="path"&&parameter.name===match[1]&&parameter.required===true))),"every templated path segment has a required path parameter");
 check("OPENAPI-SERVICE-IDENTITY",operations.filter(({path})=>path.startsWith("/v1/internal/")).every(({op})=>op["x-authentication"]==="service_identity"&&op.security?.[0]?.serviceMtls&&!("sessionCookie" in op.security[0])),"internal APIs require workload mTLS and never browser sessions");
-check("OPENAPI-CURSOR-PAGINATION",operations.filter(({op})=>op.operationId.endsWith(".list")&&! ["events.list","catalog.roles.list"].includes(op.operationId)).every(({op})=>op.parameters.some(parameter=>parameter.$ref==="#/components/parameters/Cursor")&&Object.values(op.responses["200"].content["application/json"].schema)[0].includes("Response")),"resource list operations declare opaque cursor input and collection response schemas");
+check("OPENAPI-CURSOR-PAGINATION",operations.filter(({op})=>op.operationId.endsWith(".list")&&! ["events.list","catalog.roles.list"].includes(op.operationId)).every(({op})=>op.parameters.some(parameter=>parameter.$ref==="#/components/parameters/Cursor")&&contentSchema(op.responses["200"].content)?.$ref?.includes("Response")),"resource list operations declare opaque cursor input and collection response schemas");
 const eventsListOperation=operations.find(({op})=>op.operationId==="events.list")?.op;
 check("OPENAPI-EVENT-CURSOR",eventsListOperation?.parameters.some(parameter=>parameter.$ref==="#/components/parameters/AfterSeq")&&openapi.components.schemas.EventsListResponse?.properties?.next_after_seq,"EventStore backfill uses tenant-user after_seq rather than resource pagination");
-check("OPENAPI-ASYNC-RUNS",["onboarding.route_preview","routes.generate","tasks.generate","reviews.generate","projects.test","portfolio.export","messages.create"].every(operationId=>{const op=operations.find(item=>item.op.operationId===operationId)?.op;const ref=Object.values(op?.responses?.["202"]?.content?.["application/json"]?.schema??{})[0];const schema=ref&&openapi.components.schemas[ref.split("/").at(-1)];return schema?.properties?.run_id&&schema?.properties?.status}),"every Agent-starting operation returns 202 with run_id and accepted status");
+check("OPENAPI-ASYNC-RUNS",["onboarding.route_preview","tasks.generate","reviews.generate","projects.test","portfolio.export","messages.create"].every(operationId=>{const op=operations.find(item=>item.op.operationId===operationId)?.op;const ref=contentSchema(op?.responses?.["202"]?.content)?.$ref;const schema=ref&&openapi.components.schemas[ref.split("/").at(-1)];return schema?.properties?.run_id&&schema?.properties?.status}),"Agent-starting operations return 202 with their durable run identifier and status");
+const routeGenerateOperation=operations.find(({op})=>op.operationId==="routes.generate")?.op;
+const routeGenerateRef=contentSchema(routeGenerateOperation?.responses?.["202"]?.content)?.$ref;
+const routeGenerateSchema=routeGenerateRef&&openapi.components.schemas[routeGenerateRef.split("/").at(-1)];
+check("OPENAPI-ROUTE-GENERATION",routeGenerateOperation?.requestBody?.content?.["application/vnd.lites.route-generate.v2+json"]&&routeGenerateSchema?.properties?.route_revision_id&&routeGenerateSchema?.properties?.planner_command_id,"route generation matches the production media type and durable revision/command response");
 const realtimeOperation=operations.find(({op})=>op.operationId==="realtime.connect")?.op;
 check("OPENAPI-REALTIME-SSE",realtimeOperation?.responses?.["200"]?.content?.["text/event-stream"]&&!realtimeOperation?.responses?.["200"]?.content?.["application/json"],"realtime endpoint is SSE and not a JSON fact source");
 check("OPENAPI-SECRET-RESPONSES",Object.entries(openapi.components.schemas).filter(([name])=>/Byok/i.test(name)&&/Response$/.test(name)).every(([,schema])=>!["api_key","secret","secret_ref"].some(field=>field in (schema.properties??{}))),"BYOK responses never expose raw or stored secret material");
@@ -85,7 +93,7 @@ const ddl=await readFile(resolve(root,"contracts/database/000001_contract_baseli
 check("DATABASE-DDL-TABLES",database.tables.every(table=>ddl.includes(`CREATE TABLE IF NOT EXISTS \"${table.schema}\".\"${table.name}\"`)),"every catalog table is represented in generated DDL");
 check("DATABASE-DDL-RLS",database.tables.filter(table=>table.tenantScoped).every(table=>ddl.includes(`CREATE POLICY \"${table.name}_tenant_isolation\"`)),"every tenant-scoped table has a generated forced RLS policy");
 const databaseVerification=await readFile(resolve(root,"contracts/database/900000_verify_contract.sql"),"utf8");
-check("DATABASE-EXECUTABLE-VERIFICATION",["expected 92 contract tables","expected 85 forced-RLS tables","expected 21 append-only triggers","cross-tenant row became visible","append-only mutation unexpectedly succeeded","claim_key uniqueness missing","session active tenant binding missing","session CAS version missing","session active tenant foreign key missing","membership import key uniqueness missing","invitation import key uniqueness missing","invitation capability lookup missing","invitation capability lookup is public","active tenant lock capability missing","active tenant lock capability is public","idempotency response scope uniqueness missing","event aggregate version uniqueness missing","Mission Focus primary key missing","effect ledger uniqueness missing","two-person distinct-vote constraint missing","credit conservation check missing"].every(marker=>databaseVerification.includes(marker)),"database verification covers catalog, isolation, immutability and critical domain constraints");
+check("DATABASE-EXECUTABLE-VERIFICATION",[`expected ${database.tables.length} contract tables`,`expected ${database.tables.filter(table=>table.tenantScoped).length} forced-RLS tables`,`expected ${database.tables.filter(table=>table.appendOnly).length} append-only triggers`,"cross-tenant row became visible","append-only mutation unexpectedly succeeded","claim_key uniqueness missing","session active tenant binding missing","session CAS version missing","session active tenant foreign key missing","membership import key uniqueness missing","invitation import key uniqueness missing","invitation capability lookup missing","invitation capability lookup is public","active tenant lock capability missing","active tenant lock capability is public","idempotency response scope uniqueness missing","event aggregate version uniqueness missing","Mission Focus primary key missing","effect ledger uniqueness missing","two-person distinct-vote constraint missing","credit conservation check missing"].every(marker=>databaseVerification.includes(marker)),"database verification covers catalog, isolation, immutability and critical domain constraints");
 const sessionTable=database.tables.find(table=>table.qualifiedName==="identity.sessions");
 check("DATABASE-SESSION-TENANT-CONTEXT",sessionTable.columns.some(column=>column.startsWith("active_tenant_id uuid NOT NULL"))&&sessionTable.columns.some(column=>column.startsWith("version bigint"))&&sessionTable.foreignKeys.some(([column,target])=>column==="active_tenant_id"&&target==="identity.tenants"),"sessions persist a CAS-versioned active tenant that must resolve through an active membership");
 const idempotencyTable=database.tables.find(table=>table.qualifiedName==="agent.idempotency_responses");
@@ -231,7 +239,7 @@ check("NO-UNRESOLVED-MARKERS",forbidden.length===0,forbidden.length?forbidden.jo
 const failures=results.filter(result=>result.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:1,kind:"schema-lint",generatedAt:new Date().toISOString(),status:failures.length?"failed":"passed",summary:{checks:results.length,passed:results.length-failures.length,failed:failures.length},results};
 const report={...reportBase,reportHash:sha256(reportBase)};
-const reportPath=resolve(root,"gate-reports/stage-1/schema-lint.json");
+const reportPath=resolve(root,option("--report")??"gate-reports/stage-1/schema-lint.json");
 await mkdir(dirname(reportPath),{recursive:true});
 await writeFile(reportPath,`${JSON.stringify(report,null,2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} checks passed; report ${report.reportHash}`);

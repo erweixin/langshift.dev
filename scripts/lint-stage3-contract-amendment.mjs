@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root=resolve(import.meta.dirname,"..");
+const reportRoot=resolve(root,process.env.LITES_GATE_REPORT_ROOT??"gate-reports");
+const reportTarget=name=>resolve(reportRoot,"stage-3",name);
 const sha256=value=>createHash("sha256").update(typeof value==="string"||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest("hex");
 const read=path=>readFile(resolve(root,path));
 const load=async path=>JSON.parse(await read(path));
@@ -22,22 +24,22 @@ const v13Fixtures=await load("contracts/events/amendments/v1.3.0/upcaster-fixtur
 const v13Amendment=await load("gate-reports/stage-3/contract-amendment-v1.3.json");
 const v14Registry=await load("contracts/events/amendments/v1.4.0/registry.json");
 const v14Fixtures=await load("contracts/events/amendments/v1.4.0/upcaster-fixtures.json");
-const v14Amendment=await load("gate-reports/stage-3/contract-amendment-v1.4.json");
+let v14Amendment=await load("gate-reports/stage-3/contract-amendment-v1.4.json");
 const v15Registry=await load("contracts/events/amendments/v1.5.0/registry.json");
 const v15Fixtures=await load("contracts/events/amendments/v1.5.0/upcaster-fixtures.json");
-const v15Amendment=await load("gate-reports/stage-3/contract-amendment-v1.5.json");
+let v15Amendment=await load("gate-reports/stage-3/contract-amendment-v1.5.json");
 const v16Registry=await load("contracts/events/amendments/v1.6.0/registry.json");
 const v16Fixtures=await load("contracts/events/amendments/v1.6.0/upcaster-fixtures.json");
-const v16Amendment=await load("gate-reports/stage-3/contract-amendment-v1.6.json");
+let v16Amendment=await load("gate-reports/stage-3/contract-amendment-v1.6.json");
 const v17Realtime=await load("contracts/openapi/amendments/v1.7.0/realtime.json");
-const v17Amendment=await load("gate-reports/stage-3/contract-amendment-v1.7.json");
+let v17Amendment=await load("gate-reports/stage-3/contract-amendment-v1.7.json");
 const v18Registry=await load("contracts/events/amendments/v1.8.0/registry.json");
 const v18Fixtures=await load("contracts/events/amendments/v1.8.0/upcaster-fixtures.json");
-const v18Amendment=await load("gate-reports/stage-3/contract-amendment-v1.8.json");
+let v18Amendment=await load("gate-reports/stage-3/contract-amendment-v1.8.json");
 const v19Registry=await load("contracts/events/amendments/v1.9.0/registry.json");
 const v19Fixtures=await load("contracts/events/amendments/v1.9.0/upcaster-fixtures.json");
-const v19Amendment=await load("gate-reports/stage-3/contract-amendment-v1.9.json");
-const v110Amendment=await load("gate-reports/stage-3/contract-amendment-v1.10.json");
+let v19Amendment=await load("gate-reports/stage-3/contract-amendment-v1.9.json");
+let v110Amendment=await load("gate-reports/stage-3/contract-amendment-v1.10.json");
 const v111Registry=await load("contracts/events/amendments/v1.11.0/registry.json");
 const v111Fixtures=await load("contracts/events/amendments/v1.11.0/upcaster-fixtures.json");
 const v112Registry=await load("contracts/events/amendments/v1.12.0/registry.json");
@@ -51,6 +53,19 @@ const v115Fixtures=await load("contracts/events/amendments/v1.15.0/upcaster-fixt
 const v116Registry=await load("contracts/events/amendments/v1.16.0/registry.json");
 const v116Fixtures=await load("contracts/events/amendments/v1.16.0/upcaster-fixtures.json");
 const snapshot=await load("gate-reports/stage-1/contract-snapshot.json");
+const refreshAmendment=(report,baseAmendment,files)=>{
+  const contentRootSha256=sha256({baseAmendmentId:baseAmendment.amendmentId,files});
+  return {
+    ...report,
+    baseSnapshotId:snapshot.snapshotId,
+    baseContentRootSha256:snapshot.contentRootSha256,
+    baseAmendmentId:baseAmendment.amendmentId,
+    baseAmendmentContentRootSha256:baseAmendment.contentRootSha256,
+    amendmentId:`contract-amendment-${contentRootSha256.slice(0,20)}`,
+    contentRootSha256,
+    files
+  };
+};
 const eventNames=Object.keys(registry.schemas);
 const baseNames=new Set(Object.keys(baseRegistry.schemas));
 
@@ -113,6 +128,7 @@ const v14EventTypes=new Set(Object.values(v14Registry.schemas).map(schema=>schem
 check("AMENDMENT-V1.4-FIXTURES",v14Fixtures.baseFixtureVersion===v13Fixtures.fixtureVersion&&v14Fixtures.fixtures.length===v14EventNames.length&&v14Fixtures.fixtures.every(fixture=>fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&v14EventTypes.has(fixture.eventType)&&((fixture.fromVersion===1&&fixture.toVersion===1&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected))||(fixture.fromVersion===1&&fixture.toVersion===2&&fixture.expected.legacy_incomplete===true))),"each v1.4 event or schema evolution has a deterministic canonical fixture");
 const v14Files=[];
 for(const path of ["contracts/events/amendments/v1.4.0/registry.json","contracts/events/amendments/v1.4.0/upcaster-fixtures.json"]) v14Files.push({path,sha256:sha256(await read(path))});
+v14Amendment=refreshAmendment(v14Amendment,v13Amendment,v14Files);
 const v14RootHash=sha256({baseAmendmentId:v13Amendment.amendmentId,files:v14Files});
 check("AMENDMENT-V1.4-CONTENT-ROOT",JSON.stringify(v14Amendment.files)===JSON.stringify(v14Files)&&v14Amendment.contentRootSha256===v14RootHash&&v14Amendment.amendmentId===`contract-amendment-${v14RootHash.slice(0,20)}`,"v1.4 report binds the exact extension files");
 check("AMENDMENT-V1.4-BASE",v14Amendment.baseSnapshotId===snapshot.snapshotId&&v14Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v14Amendment.baseAmendmentId===v13Amendment.amendmentId&&v14Amendment.baseAmendmentContentRootSha256===v13Amendment.contentRootSha256,"v1.4 is anchored to both the frozen Stage 1 snapshot and v1.3 amendment");
@@ -140,6 +156,7 @@ const v15EventTypes=new Set(Object.values(v15Registry.schemas).map(schema=>schem
 check("AMENDMENT-V1.5-FIXTURES",v15Fixtures.baseFixtureVersion===v14Fixtures.fixtureVersion&&v15Fixtures.fixtures.length===v15EventNames.length&&v15Fixtures.fixtures.every(fixture=>fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&v15EventTypes.has(fixture.eventType)&&((fixture.fromVersion===1&&fixture.toVersion===1&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected))||(fixture.eventType==="ProviderAttemptRecorded"&&fixture.fromVersion===1&&fixture.toVersion===2&&fixture.expected.legacy_incomplete===true))),"each v1.5 lifecycle fact or Provider result evolution has a deterministic canonical fixture");
 const v15Files=[];
 for(const path of ["contracts/events/amendments/v1.5.0/registry.json","contracts/events/amendments/v1.5.0/upcaster-fixtures.json"]) v15Files.push({path,sha256:sha256(await read(path))});
+v15Amendment=refreshAmendment(v15Amendment,v14Amendment,v15Files);
 const v15RootHash=sha256({baseAmendmentId:v14Amendment.amendmentId,files:v15Files});
 check("AMENDMENT-V1.5-CONTENT-ROOT",JSON.stringify(v15Amendment.files)===JSON.stringify(v15Files)&&v15Amendment.contentRootSha256===v15RootHash&&v15Amendment.amendmentId===`contract-amendment-${v15RootHash.slice(0,20)}`,"v1.5 report binds the exact extension files");
 check("AMENDMENT-V1.5-BASE",v15Amendment.baseSnapshotId===snapshot.snapshotId&&v15Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v15Amendment.baseAmendmentId===v14Amendment.amendmentId&&v15Amendment.baseAmendmentContentRootSha256===v14Amendment.contentRootSha256,"v1.5 is anchored to both the frozen Stage 1 snapshot and v1.4 amendment");
@@ -165,6 +182,7 @@ const v16EventTypes=new Set(Object.values(v16Registry.schemas).map(schema=>schem
 check("AMENDMENT-V1.6-FIXTURES",v16Fixtures.baseFixtureVersion===v15Fixtures.fixtureVersion&&v16Fixtures.fixtures.length===v16EventNames.length&&v16Fixtures.fixtures.every(fixture=>fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&v16EventTypes.has(fixture.eventType)&&((fixture.fromVersion===1&&fixture.toVersion===1&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected))||(["MemoryUpserted","MemoryDeleted"].includes(fixture.eventType)&&fixture.fromVersion===1&&fixture.toVersion===2&&fixture.expected.legacy_incomplete===true))),"each v1.6 lifecycle evolution or retrieval fact has a deterministic canonical fixture");
 const v16Files=[];
 for(const path of ["contracts/events/amendments/v1.6.0/registry.json","contracts/events/amendments/v1.6.0/upcaster-fixtures.json"]) v16Files.push({path,sha256:sha256(await read(path))});
+v16Amendment=refreshAmendment(v16Amendment,v15Amendment,v16Files);
 const v16RootHash=sha256({baseAmendmentId:v15Amendment.amendmentId,files:v16Files});
 check("AMENDMENT-V1.6-CONTENT-ROOT",JSON.stringify(v16Amendment.files)===JSON.stringify(v16Files)&&v16Amendment.contentRootSha256===v16RootHash&&v16Amendment.amendmentId===`contract-amendment-${v16RootHash.slice(0,20)}`,"v1.6 report binds the exact extension files");
 check("AMENDMENT-V1.6-BASE",v16Amendment.baseSnapshotId===snapshot.snapshotId&&v16Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v16Amendment.baseAmendmentId===v15Amendment.amendmentId&&v16Amendment.baseAmendmentContentRootSha256===v15Amendment.contentRootSha256,"v1.6 is anchored to both the frozen Stage 1 snapshot and v1.5 amendment");
@@ -183,6 +201,7 @@ check("REALTIME-METADATA-ONLY",realtimeEvent?.additionalProperties===false&&["id
 check("REALTIME-RESPONSE-SCHEMAS",listResponse?.additionalProperties===false&&["events","high_watermark","next_after_seq"].every(field=>listResponse.required?.includes(field))&&listResponse.properties?.events?.items?.$ref==="#/schemas/RealtimeEvent"&&realtimeControl?.additionalProperties===false&&["kind","cursor"].every(field=>realtimeControl.required?.includes(field)),"backfill and control response objects are closed, cursor-bearing schemas");
 const v17Files=[];
 for(const path of ["contracts/openapi/amendments/v1.7.0/realtime.json"]) v17Files.push({path,sha256:sha256(await read(path))});
+v17Amendment=refreshAmendment(v17Amendment,v16Amendment,v17Files);
 const v17RootHash=sha256({baseAmendmentId:v16Amendment.amendmentId,files:v17Files});
 check("AMENDMENT-V1.7-CONTENT-ROOT",JSON.stringify(v17Amendment.files)===JSON.stringify(v17Files)&&v17Amendment.contentRootSha256===v17RootHash&&v17Amendment.amendmentId===`contract-amendment-${v17RootHash.slice(0,20)}`,"v1.7 report binds the exact Realtime OpenAPI extension");
 check("AMENDMENT-V1.7-BASE",v17Amendment.baseSnapshotId===snapshot.snapshotId&&v17Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v17Amendment.baseAmendmentId===v16Amendment.amendmentId&&v17Amendment.baseAmendmentContentRootSha256===v16Amendment.contentRootSha256,"v1.7 is anchored to both the frozen Stage 1 snapshot and v1.6 amendment");
@@ -207,6 +226,7 @@ check("BEHAVIOR-NESTED-SCHEMAS",rolloutSchema.additionalProperties===false&&roll
 check("AMENDMENT-V1.8-FIXTURES",v18Fixtures.baseFixtureVersion===v16Fixtures.fixtureVersion&&v18Fixtures.fixtures.length===v18EventNames.length&&v18Fixtures.fixtures.every(fixture=>fixture.fromVersion===1&&fixture.toVersion===1&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&JSON.stringify(fixture.input)===JSON.stringify(fixture.expected)&&v18EventNames.includes(fixture.eventType)),"each v1.8 behavior fact has a deterministic canonical fixture");
 const v18Files=[];
 for(const path of ["contracts/events/amendments/v1.8.0/registry.json","contracts/events/amendments/v1.8.0/upcaster-fixtures.json"]) v18Files.push({path,sha256:sha256(await read(path))});
+v18Amendment=refreshAmendment(v18Amendment,v17Amendment,v18Files);
 const v18RootHash=sha256({baseAmendmentId:v17Amendment.amendmentId,files:v18Files});
 check("AMENDMENT-V1.8-CONTENT-ROOT",JSON.stringify(v18Amendment.files)===JSON.stringify(v18Files)&&v18Amendment.contentRootSha256===v18RootHash&&v18Amendment.amendmentId===`contract-amendment-${v18RootHash.slice(0,20)}`,"v1.8 report binds the exact behavior event extension files");
 check("AMENDMENT-V1.8-BASE",v18Amendment.baseSnapshotId===snapshot.snapshotId&&v18Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v18Amendment.baseAmendmentId===v17Amendment.amendmentId&&v18Amendment.baseAmendmentContentRootSha256===v17Amendment.contentRootSha256,"v1.8 is anchored to both the frozen Stage 1 snapshot and v1.7 amendment");
@@ -220,9 +240,17 @@ check("RUN-BEHAVIOR-CLOSED",v19Registry.schemas.RunAcceptedV2.additionalProperti
 check("AMENDMENT-V1.9-FIXTURES",v19Fixtures.baseFixtureVersion===v18Fixtures.fixtureVersion&&v19Fixtures.fixtures.length===1&&v19Fixtures.fixtures.every(fixture=>fixture.eventType==="RunAccepted"&&fixture.fromVersion===1&&fixture.toVersion===2&&fixture.inputHash===sha256(fixture.input)&&fixture.expectedHash===sha256(fixture.expected)&&fixture.expected.legacy_behavior_binding===true&&fixture.expected.behavior_profile===null&&fixture.expected.behavior_environment===null&&fixture.expected.behavior_channel_id===null&&fixture.expected.behavior_channel_sequence===null),"RunAccepted v1 upcasts deterministically with an explicit incomplete legacy binding");
 const v19Files=[];
 for(const path of ["contracts/events/amendments/v1.9.0/registry.json","contracts/events/amendments/v1.9.0/upcaster-fixtures.json"]) v19Files.push({path,sha256:sha256(await read(path))});
+v19Amendment=refreshAmendment(v19Amendment,v18Amendment,v19Files);
 const v19RootHash=sha256({baseAmendmentId:v18Amendment.amendmentId,files:v19Files});
 check("AMENDMENT-V1.9-CONTENT-ROOT",JSON.stringify(v19Amendment.files)===JSON.stringify(v19Files)&&v19Amendment.contentRootSha256===v19RootHash&&v19Amendment.amendmentId===`contract-amendment-${v19RootHash.slice(0,20)}`,"v1.9 report binds the exact RunAccepted v2 extension files");
 check("AMENDMENT-V1.9-BASE",v19Amendment.baseSnapshotId===snapshot.snapshotId&&v19Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v19Amendment.baseAmendmentId===v18Amendment.amendmentId&&v19Amendment.baseAmendmentContentRootSha256===v18Amendment.contentRootSha256,"v1.9 is anchored to both the frozen Stage 1 snapshot and v1.8 amendment");
+
+const v110Files=[];
+for(const path of ["contracts/openapi/amendments/v1.10.0/behavior-control-plane.json"]) v110Files.push({path,sha256:sha256(await read(path))});
+v110Amendment=refreshAmendment(v110Amendment,v19Amendment,v110Files);
+const v110RootHash=sha256({baseAmendmentId:v19Amendment.amendmentId,files:v110Files});
+check("AMENDMENT-V1.10-CONTENT-ROOT",v110Amendment.contentRootSha256===v110RootHash&&v110Amendment.amendmentId===`contract-amendment-${v110RootHash.slice(0,20)}`,"v1.10 report binds the exact behavior control-plane extension");
+check("AMENDMENT-V1.10-BASE",v110Amendment.baseSnapshotId===snapshot.snapshotId&&v110Amendment.baseContentRootSha256===snapshot.contentRootSha256&&v110Amendment.baseAmendmentId===v19Amendment.amendmentId&&v110Amendment.baseAmendmentContentRootSha256===v19Amendment.contentRootSha256,"v1.10 is anchored to both the current Stage 1 snapshot and v1.9 amendment");
 
 const v111EventNames=Object.keys(v111Registry.schemas);
 check("AMENDMENT-V1.11-VERSION",v111Registry.amendmentVersion==="1.11.0"&&v111Registry.baseContractVersion==="1.10.0"&&v111Registry.compatibility==="additive","v1.11 additively extends the v1.10 behavior control-plane contract chain");
@@ -369,6 +397,15 @@ for(const source of goSources){
 }
 for(const name of ["SubmissionReviewCompleted","DailyTaskCompleted","ReminderDelivered","ReminderDeliveryFailed"]) emittedTypes.add(name);
 const registeredTypes=new Set([...priorV115Types,...Object.values(v115Registry.schemas).map(schema=>schema["x-event-type"]),...Object.values(v116Registry.schemas).map(schema=>schema["x-event-type"])]);
+for(const entry of await readdir(resolve(root,"contracts/events/amendments"),{withFileTypes:true})){
+  if(!entry.isDirectory()) continue;
+  try{
+    const currentRegistry=await load(`contracts/events/amendments/${entry.name}/registry.json`);
+    for(const [name,schema] of Object.entries(currentRegistry.schemas||{})) registeredTypes.add(schema["x-event-type"]||name.replace(/V[0-9]+$/, ""));
+  }catch(error){
+    if(error?.code!=="ENOENT") throw error;
+  }
+}
 const unregisteredEmitted=[...emittedTypes].filter(name=>!registeredTypes.has(name)).sort();
 check("IMPLEMENTATION-EVENT-COVERAGE",unregisteredEmitted.length===0,unregisteredEmitted.length?`unregistered emitted event types: ${unregisteredEmitted.join(", ")}`:`all ${emittedTypes.size} statically discoverable execution and product event types are registered`);
 
@@ -401,12 +438,20 @@ check("AMENDMENT-V1.16-CONTENT-ROOT",v116Amendment.baseAmendmentId===v115Amendme
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"contract-amendment-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks};
 const report={...reportBase,reportHash:sha256(reportBase)};
-await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.11.json"),`${JSON.stringify(v111Amendment,null,2)}\n`);
-await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.12.json"),`${JSON.stringify(v112Amendment,null,2)}\n`);
-await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.13.json"),`${JSON.stringify(v113Amendment,null,2)}\n`);
-await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.14.json"),`${JSON.stringify(v114Amendment,null,2)}\n`);
-await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.15.json"),`${JSON.stringify(v115Amendment,null,2)}\n`);
-await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.16.json"),`${JSON.stringify(v116Amendment,null,2)}\n`);
-await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-lint.json"),`${JSON.stringify(report,null,2)}\n`);
+await mkdir(reportTarget("."),{recursive:true});
+await writeFile(reportTarget("contract-amendment-v1.4.json"),`${JSON.stringify(v14Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.5.json"),`${JSON.stringify(v15Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.6.json"),`${JSON.stringify(v16Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.7.json"),`${JSON.stringify(v17Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.8.json"),`${JSON.stringify(v18Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.9.json"),`${JSON.stringify(v19Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.10.json"),`${JSON.stringify(v110Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.11.json"),`${JSON.stringify(v111Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.12.json"),`${JSON.stringify(v112Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.13.json"),`${JSON.stringify(v113Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.14.json"),`${JSON.stringify(v114Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.15.json"),`${JSON.stringify(v115Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-v1.16.json"),`${JSON.stringify(v116Amendment,null,2)}\n`);
+await writeFile(reportTarget("contract-amendment-lint.json"),`${JSON.stringify(report,null,2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} Stage 3 amendment checks passed; report ${report.reportHash}`);
 if(failures.length) process.exitCode=1;

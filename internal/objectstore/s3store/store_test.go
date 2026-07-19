@@ -103,6 +103,37 @@ func TestPutIsImmutableAndIdempotentForIdenticalContent(t *testing.T) {
 	}
 }
 
+func TestPutAcceptsDurableEventStageObjectID(t *testing.T) {
+	client := memoryClient()
+	store := testStore(client)
+	key := "tenant/event/attempt-1:provider-dispatch/hash"
+	ref, err := store.Put(context.Background(), key, []byte("ciphertext"))
+	if err != nil || ref != "s3://lites-payloads/restricted/"+key {
+		t.Fatalf("ref=%q err=%v", ref, err)
+	}
+	contents, err := store.Get(context.Background(), ref)
+	if err != nil || string(contents) != "ciphertext" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+}
+
+func TestObjectKeyStillRejectsTraversalAndURLSyntax(t *testing.T) {
+	client := memoryClient()
+	store := testStore(client)
+	for _, key := range []string{
+		"tenant/event/../secret",
+		"tenant/event/id?query",
+		"tenant/event/id#fragment",
+		"tenant/event/id%2Fescape",
+		"tenant/event/id\\escape",
+		"tenant/event/id::stage with-space",
+	} {
+		if _, err := store.Put(context.Background(), key, []byte("ciphertext")); !errors.Is(err, ErrConfiguration) {
+			t.Fatalf("key=%q err=%v", key, err)
+		}
+	}
+}
+
 func TestPutVersionedRequiresAndReplaysProviderVersion(t *testing.T) {
 	client := memoryClient()
 	store := testStore(client)

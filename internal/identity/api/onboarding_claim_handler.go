@@ -79,7 +79,12 @@ func (handler Handler) onboardingClaim(writer http.ResponseWriter, request *http
 		return
 	}
 	http.SetCookie(writer, anonymoussession.ClearCookie())
-	http.SetCookie(writer, anonymoussession.ClearCSRFCookie())
+	// The anonymous and authenticated flows intentionally use the same CSRF
+	// cookie name. Login has already replaced the anonymous value with the
+	// session-bound value required by every subsequent authenticated write, so
+	// clearing it here would silently break the signed-in session. Removing the
+	// HttpOnly anonymous bearer is sufficient to end the anonymous browser
+	// session after the claim has converged.
 	writer.Header().Set("ETag", strconv.Quote(strconv.FormatUint(result.Version, 10)))
 	handler.writeJSON(writer, http.StatusOK, struct {
 		ID        string    `json:"id"`

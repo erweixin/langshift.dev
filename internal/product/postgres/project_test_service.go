@@ -238,7 +238,7 @@ func (service ProjectTestGenerationService) prepare(ctx context.Context, command
 }
 
 func (service ProjectTestGenerationService) identifiers(seed string) (projectTestGenerationIDs, error) {
-	domains := []string{"project-test-generation", "project-test-conversation", "project-test-message", "project-test-run", "project-test-start-command"}
+	domains := []string{"project-test-generation", "project-test-conversation", "project-test-message", "project-test-run"}
 	values := make([]string, len(domains))
 	for index, domain := range domains {
 		value, err := ids.DeterministicUUID(service.IDKey, domain, seed)
@@ -247,7 +247,11 @@ func (service ProjectTestGenerationService) identifiers(seed string) (projectTes
 		}
 		values[index] = value
 	}
-	return projectTestGenerationIDs{values[0], values[1], values[2], values[3], values[4]}, nil
+	startCommand, err := executionpostgres.RunStartCommandID(service.Runs.IDKey, values[3])
+	if err != nil {
+		return projectTestGenerationIDs{}, err
+	}
+	return projectTestGenerationIDs{values[0], values[1], values[2], values[3], startCommand}, nil
 }
 
 func (service ProjectTestGenerationService) putJSON(ctx context.Context, descriptor payload.Descriptor, value any) (payload.Manifest, error) {

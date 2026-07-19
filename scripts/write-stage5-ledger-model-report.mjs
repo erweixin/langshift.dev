@@ -14,6 +14,9 @@ if (!modelPath || !databasePath || !/^[0-9a-f]{40}$/.test(sourceCommit ?? "")) {
 
 const modelRaw = await readFile(modelPath);
 const databaseRaw = await readFile(databasePath);
+const migrationManifestRaw = await readFile("deploy/migrations/manifest.json");
+const currentMigration = JSON.parse(migrationManifestRaw).migrations?.at(-1);
+if (!Number.isInteger(currentMigration?.version) || !currentMigration?.name) throw new Error("current migration manifest is invalid");
 const metrics = JSON.parse(modelRaw.toString("utf8"));
 const records = databaseRaw.toString("utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
 const requiredTests = [
@@ -53,7 +56,8 @@ const reportBase = {
     databaseGoTestJsonSha256: createHash("sha256").update(databaseRaw).digest("hex"),
     referenceModelTest: "internal/contracts/postgres/ledger_model_test.go",
     databaseTests: requiredTests.map(([pkg, test]) => ({ package: pkg, test })),
-    database: "PostgreSQL 16 temporary isolated database with migrations through version 84",
+    database: `PostgreSQL 16 temporary isolated database with migrations through version ${currentMigration.version}`,
+    migration: { version: currentMigration.version, name: currentMigration.name, manifestSha256: createHash("sha256").update(migrationManifestRaw).digest("hex") },
     serviceRoles: ["NOBYPASSRLS lites_contract_service", "NOBYPASSRLS lites_agent_service"],
   },
   results: metrics,

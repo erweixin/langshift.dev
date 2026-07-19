@@ -33,6 +33,25 @@ func baseRequest(stream bool) Request {
 	}
 }
 
+func TestContentBlockPersistsCanonicalJSONAndReadsLegacyEnvelope(t *testing.T) {
+	encoded, err := json.Marshal(ContentBlock{Type: "text", Text: "hello"})
+	if err != nil || string(encoded) != `{"type":"text","text":"hello"}` {
+		t.Fatalf("encoded=%s err=%v", encoded, err)
+	}
+	var legacy ContentBlock
+	if err = json.Unmarshal([]byte(`{"Type":"tool_use","Text":"","MediaType":"","DataBase64":"","ToolUseID":"call-1","ToolName":"lookup","ToolInput":{"q":"role"},"IsError":false}`), &legacy); err != nil || legacy.Type != "tool_use" || legacy.ToolUseID != "call-1" || legacy.ToolName != "lookup" || string(legacy.ToolInput) != `{"q":"role"}` {
+		t.Fatalf("legacy=%#v err=%v", legacy, err)
+	}
+	for _, invalid := range []string{
+		`{"type":"text","Type":"text"}`,
+		`{"type":"text","unknown":true}`,
+	} {
+		if err = json.Unmarshal([]byte(invalid), &legacy); err == nil {
+			t.Fatalf("accepted invalid content block %s", invalid)
+		}
+	}
+}
+
 func response(status int, contentType, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{contentType}}, Body: io.NopCloser(strings.NewReader(body))}
 }

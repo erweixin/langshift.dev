@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { LoaderCircle, Send, Sparkles, X } from "lucide-react";
 import type { Locale } from "@/i18n/config";
 import type { Dictionary } from "@/i18n/dictionaries";
@@ -16,8 +16,6 @@ type Conversation = {
   status: "active" | "archived";
   messages: { id: string; run_id: string; role: "user" | "assistant"; content: string; created_at: string }[];
 };
-
-const terminalFailures = new Set(["failed", "cancelled", "expired"]);
 
 function wait(milliseconds: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -60,11 +58,42 @@ export function CoachDrawer({ dictionary, context, missionID, locale }: { dictio
   }, [missionID, welcome]);
   useEffect(() => () => requestRef.current?.abort(), []);
 
-  function applyConversation(resource: Conversation) {
+  const applyConversation = useCallback((resource: Conversation) => {
     setConversation({ id: resource.id, version: resource.version });
     const projected = resource.messages.map<Message>((message) => ({ id: message.id, role: message.role === "assistant" ? "coach" : "user", text: message.content }));
     setMessages(projected.length > 0 ? projected : [{ id: "welcome", role: "coach", text: welcome }]);
-  }
+  }, [welcome]);
+
+  useEffect(() => {
+    if (!open || demoMode || !missionID) return;
+    const storageKey = `lites.coach.conversation.${missionID}`;
+    const remembered = window.localStorage.getItem(storageKey);
+    if (!remembered) return;
+    const controller = new AbortController();
+    requestRef.current?.abort();
+    requestRef.current = controller;
+    void apiRequest<Conversation>(`/v1/conversations/${encodeURIComponent(remembered)}?limit=50`, { signal: controller.signal })
+      .then((resource) => {
+        if (resource.mission_id === missionID && resource.mode === "coach" && resource.status === "active") {
+          applyConversation(resource);
+          setError("");
+          return;
+        }
+        window.localStorage.removeItem(storageKey);
+      })
+      .catch((caught) => {
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+        if (caught instanceof ApiError && caught.status === 404) {
+          window.localStorage.removeItem(storageKey);
+          return;
+        }
+        setError(zh ? "无法恢复之前的 Coach 对话。请稍后重试。" : "The previous Coach conversation could not be restored. Try again shortly.");
+      })
+      .finally(() => {
+        if (requestRef.current === controller) requestRef.current = null;
+      });
+    return () => controller.abort();
+  }, [applyConversation, missionID, open, zh]);
 
   async function ensureConversation(signal: AbortSignal) {
     if (conversation) return conversation;
@@ -118,8 +147,6 @@ export function CoachDrawer({ dictionary, context, missionID, locale }: { dictio
           applyConversation(resource);
           return;
         }
-        const run = await apiRequest<{ status: string }>(`/v1/runs/${encodeURIComponent(accepted.run_id)}`, { signal: controller.signal });
-        if (terminalFailures.has(run.status)) throw new Error(`run_${run.status}`);
         await wait(1000, controller.signal);
       }
       throw new Error("run_timeout");

@@ -15,7 +15,10 @@ import { CoachDrawer } from "./coach-drawer";
 
 export function AppShell({ locale, dictionary, children }: { locale: Locale; dictionary: Dictionary; children: React.ReactNode }) {
   const pathname = usePathname();
-  const workspace = useMissions(locale, !demoMode);
+  // AppShell owns the Mission switcher and Coach admission independently from
+  // the page workspace. Claim projection may complete just after sign-in, so
+  // this shell must recover from an initially empty or failed Mission read.
+  const workspace = useMissions(locale, !demoMode, !demoMode);
   const [activeMission, setActiveMission] = useState(demoMode ? "cloud-agent" : "");
   const [switchError, setSwitchError] = useState("");
   const demoMissions = [
@@ -65,7 +68,7 @@ export function AppShell({ locale, dictionary, children }: { locale: Locale; dic
             {mission.id === selectedMissionID && <span className="status-dot" title={dictionary.common.current} />}
           </button>)}
           {!demoMode && workspace.loading && <small>{locale === "zh-CN" ? "读取 Missions…" : "Loading Missions…"}</small>}
-          {!demoMode && (workspace.error || switchError) && <small className="error-note" role="alert">{switchError || workspace.error}</small>}
+          {!demoMode && (workspace.error || switchError) && <small className="error-note" role="alert"><span>{switchError || workspace.error}</span><button type="button" className="text-button" disabled={workspace.loading} onClick={() => { setSwitchError(""); void workspace.refresh(); }}>{workspace.loading ? (locale === "zh-CN" ? "重试中…" : "Retrying…") : (locale === "zh-CN" ? "重试" : "Retry")}</button></small>}
           <Link href={`/${locale}/goals`} className="mission-manage">{locale === "zh-CN" ? "管理 Missions" : "Manage Missions"}</Link>
           <Link className="add-mission" href={`/${locale}/onboarding?new=mission`}>+ {dictionary.common.add}</Link>
         </section>

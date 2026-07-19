@@ -134,9 +134,12 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	service := erasure.Service{Store: store, Erasers: erasors, RecoveryEpoch: storeEpoch, ReceiptKey: receiptKey}
 	inbox := eventpostgres.InboxStore{Pool: pool, Epochs: authority, Tokens: opaque.Manager{Purpose: "account-erasure-inbox-lease", Pepper: inboxPepper}, LeaseTTL: 30 * time.Minute}
 	dispatcher := identitypostgres.AccountErasureDispatcher{Service: service, Payloads: payloadStore, Inbox: inbox, StoreEpoch: storeEpoch, ConsumerName: configuration.consumerName}
-	subject, _ := natsjs.SubjectFor(identitypostgres.AccountErasureScheduleCommand)
+	exportStore := identitypostgres.AccountExportStore{Pool: pool, Payloads: payloadStore, Appender: appender, Inbox: inbox, StoreEpoch: storeEpoch, IDKey: identityKey}
+	exportDispatcher := identitypostgres.AccountExportDispatcher{Store: exportStore, Payloads: payloadStore, Inbox: inbox, StoreEpoch: storeEpoch, ConsumerName: configuration.consumerName}
+	erasureSubject, _ := natsjs.SubjectFor(identitypostgres.AccountErasureScheduleCommand)
+	exportSubject, _ := natsjs.SubjectFor(identitypostgres.AccountExportPrepareCommand)
 	provisionCtx, provisionCancel := context.WithTimeout(ctx, 15*time.Second)
-	source, err := (natsjs.DurableConsumer{Stream: configuration.streamName, Name: configuration.consumerName, FilterSubjects: []string{subject}, Replicas: configuration.streamReplicas, AckWait: 30 * time.Minute, Backoff: []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, time.Hour, 6 * time.Hour}, MaxDeliver: 30, MaxAckPending: configuration.concurrency, MaxRequestBatch: configuration.concurrency, MaxRequestMaxBytes: configuration.concurrency * (64 << 10)}).Provision(provisionCtx, js)
+	source, err := (natsjs.DurableConsumer{Stream: configuration.streamName, Name: configuration.consumerName, FilterSubjects: []string{erasureSubject, exportSubject}, Replicas: configuration.streamReplicas, AckWait: 30 * time.Minute, Backoff: []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, time.Hour, 6 * time.Hour}, MaxDeliver: 30, MaxAckPending: configuration.concurrency, MaxRequestBatch: configuration.concurrency, MaxRequestMaxBytes: configuration.concurrency * (64 << 10)}).Provision(provisionCtx, js)
 	provisionCancel()
 	if err != nil {
 		return errors.New("provision account erasure consumer")
@@ -152,8 +155,28 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	restoreCycles, _ := meter.Int64Counter("account.erasure.restore.cycles")
 	restoreReplays, _ := meter.Int64Counter("account.erasure.restore.subjects.replayed")
 	restoreErrors, _ := meter.Int64Counter("account.erasure.restore.errors")
+	exportsCompleted, _ := meter.Int64Counter("account.export.delivery.completed")
+	exportReplays, _ := meter.Int64Counter("account.export.delivery.replays")
+	exportTerminalFailures, _ := meter.Int64Counter("account.export.delivery.terminal_failures")
 	consumer := natsjs.Consumer{Source: source, Handle: func(deliveryContext context.Context, command eventpostgres.DeliveredCommand) error {
 		started := time.Now()
+		if command.CommandType == identitypostgres.AccountExportPrepareCommand {
+			result, dispatchErr := exportDispatcher.Dispatch(deliveryContext, command)
+			deliveryDuration.Record(deliveryContext, time.Since(started).Seconds())
+			if result.Completed {
+				deliveryCompleted.Add(deliveryContext, 1)
+				exportsCompleted.Add(deliveryContext, 1)
+			}
+			if result.Replayed {
+				deliveryReplays.Add(deliveryContext, 1)
+				exportReplays.Add(deliveryContext, 1)
+			}
+			if result.TerminalFailure {
+				terminalDeliveries.Add(deliveryContext, 1)
+				exportTerminalFailures.Add(deliveryContext, 1)
+			}
+			return dispatchErr
+		}
 		result, dispatchErr := dispatcher.Dispatch(deliveryContext, command)
 		deliveryDuration.Record(deliveryContext, time.Since(started).Seconds())
 		if result.Completed {
@@ -172,7 +195,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return dispatchErr
 	}, OnError: func(deliveryContext context.Context, deliveryErr error) {
 		deliveryErrors.Add(deliveryContext, 1)
-		logger.Error("account erasure delivery", "error", deliveryErr)
+		logger.Error("account privacy lifecycle delivery", "error", deliveryErr)
 	}, Concurrency: configuration.concurrency, PullExpires: 30 * time.Second, HeartbeatInterval: 20 * time.Second, BusyDelay: 30 * time.Second, RetryDelay: time.Minute, AckTimeout: 30 * time.Minute}
 	health := erasureHealth(configuration.healthAddress, pool, connection, js, authority, storeEpoch, payloadObjects, artifactObjects, payloadKeys, transitKeys, cacheClient, telemetry.MetricsHandler())
 	errChannel := make(chan error, 4)

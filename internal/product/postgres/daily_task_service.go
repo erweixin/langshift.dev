@@ -76,12 +76,12 @@ func (service DailyTaskService) List(ctx context.Context, query productapi.Daily
 		return productapi.DailyTaskListResult{}, service.mapError(err)
 	}
 	args := []any{query.TenantID, query.UserID, dailyTaskPageSize + 1}
-	statement := `SELECT id::text,version,mission_id::text,route_revision_id::text,status,practice_kind,task_payload_ref,task_payload_hash,estimated_minutes,difficulty,focus_version,scheduled_for,rescheduled_to,current_submission_id::text,current_review_id::text,completed_at,created_at,updated_at FROM product.daily_tasks WHERE tenant_id=$1 AND user_id=$2`
+	statement := `SELECT t.id::text,t.version,t.mission_id::text,t.route_revision_id::text,t.status,t.practice_kind,t.task_payload_ref,t.task_payload_hash,t.estimated_minutes,t.difficulty,t.focus_version,t.scheduled_for,t.rescheduled_to,t.current_submission_id::text,t.current_review_id::text,t.completed_at,t.created_at,t.updated_at,s.submission_revision,g.id::text,g.review_run_id::text,g.rubric_version_id::text,g.status,g.review_id::text,g.evidence_id::text,g.failure_reason,g.created_at,g.updated_at,g.completed_at FROM product.daily_tasks t LEFT JOIN product.submissions s ON s.tenant_id=t.tenant_id AND s.user_id=t.user_id AND s.id=t.current_submission_id LEFT JOIN LATERAL (SELECT candidate.id,candidate.review_run_id,candidate.rubric_version_id,candidate.status,candidate.review_id,candidate.evidence_id,candidate.failure_reason,candidate.created_at,candidate.updated_at,candidate.completed_at FROM product.submission_review_generations candidate WHERE candidate.tenant_id=t.tenant_id AND candidate.user_id=t.user_id AND candidate.submission_id=t.current_submission_id ORDER BY CASE candidate.status WHEN 'generating' THEN 0 WHEN 'succeeded' THEN 1 ELSE 2 END,candidate.created_at DESC,candidate.id DESC LIMIT 1) g ON true WHERE t.tenant_id=$1 AND t.user_id=$2`
 	if cursor != nil {
-		statement += ` AND (scheduled_for < $4::date OR (scheduled_for=$4::date AND (created_at < $5 OR (created_at=$5 AND id < $6::uuid))))`
+		statement += ` AND (t.scheduled_for < $4::date OR (t.scheduled_for=$4::date AND (t.created_at < $5 OR (t.created_at=$5 AND t.id < $6::uuid))))`
 		args = append(args, cursor.ScheduledFor, cursor.CreatedAt, cursor.ID)
 	}
-	statement += ` ORDER BY scheduled_for DESC,created_at DESC,id DESC LIMIT $3`
+	statement += ` ORDER BY t.scheduled_for DESC,t.created_at DESC,t.id DESC LIMIT $3`
 	rows, err := tx.Query(ctx, statement, args...)
 	if err != nil {
 		return productapi.DailyTaskListResult{}, service.mapError(err)
@@ -93,8 +93,14 @@ func (service DailyTaskService) List(ctx context.Context, query productapi.Daily
 		var ref, hash string
 		var scheduled time.Time
 		var rescheduled *time.Time
-		if err = rows.Scan(&item.ID, &item.Version, &item.MissionID, &item.RouteRevisionID, &item.Status, &item.PracticeKind, &ref, &hash, &item.EstimatedMinutes, &item.Difficulty, &item.FocusVersion, &scheduled, &rescheduled, &item.CurrentSubmissionID, &item.CurrentReviewID, &item.CompletedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		var submissionRevision *int
+		var generationID, runID, rubricVersionID, generationStatus, generationReviewID, evidenceID, failureReason *string
+		var generationCreatedAt, generationUpdatedAt, generationCompletedAt *time.Time
+		if err = rows.Scan(&item.ID, &item.Version, &item.MissionID, &item.RouteRevisionID, &item.Status, &item.PracticeKind, &ref, &hash, &item.EstimatedMinutes, &item.Difficulty, &item.FocusVersion, &scheduled, &rescheduled, &item.CurrentSubmissionID, &item.CurrentReviewID, &item.CompletedAt, &item.CreatedAt, &item.UpdatedAt, &submissionRevision, &generationID, &runID, &rubricVersionID, &generationStatus, &generationReviewID, &evidenceID, &failureReason, &generationCreatedAt, &generationUpdatedAt, &generationCompletedAt); err != nil {
 			return productapi.DailyTaskListResult{}, service.mapError(err)
+		}
+		if item.CurrentSubmissionID != nil && submissionRevision != nil {
+			item.ReviewRecovery = &productapi.ReviewRecoveryResource{SubmissionID: *item.CurrentSubmissionID, SubmissionRevision: *submissionRevision, GenerationID: generationID, RunID: runID, RubricVersionID: rubricVersionID, GenerationStatus: generationStatus, ReviewID: generationReviewID, EvidenceID: evidenceID, FailureReason: failureReason, GenerationCreatedAt: generationCreatedAt, GenerationUpdatedAt: generationUpdatedAt, GenerationCompletedAt: generationCompletedAt}
 		}
 		item.ScheduledFor = scheduled.Format("2006-01-02")
 		if rescheduled != nil {
@@ -175,6 +181,18 @@ func (service DailyTaskService) Update(ctx context.Context, command productapi.U
 		if _, execErr := tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, command.TenantID); execErr != nil {
 			return idempotency.Response{}, execErr
 		}
+		// Lock the current Mission/Route/Focus boundary before the task row. Route
+		// replacement and planner reconciliation use the same order, which makes a
+		// stale task fail closed without introducing a task<->mission deadlock.
+		var scopedMissionID, scopedRouteRevisionID string
+		var scopedFocusVersion uint64
+		if scopeErr := tx.QueryRow(ctx, `SELECT mission_id::text,route_revision_id::text,focus_version FROM product.daily_tasks WHERE tenant_id=$1 AND user_id=$2 AND id=$3`, command.TenantID, command.UserID, command.TaskID).Scan(&scopedMissionID, &scopedRouteRevisionID, &scopedFocusVersion); scopeErr != nil {
+			return idempotency.Response{}, scopeErr
+		}
+		var admissible bool
+		if scopeErr := tx.QueryRow(ctx, `SELECT agent.lock_owned_daily_planning_mission($1,$2,$3,$4,$5)`, command.TenantID, command.UserID, scopedMissionID, scopedRouteRevisionID, scopedFocusVersion).Scan(&admissible); scopeErr != nil || !admissible {
+			return idempotency.Response{}, ErrRouteConflict
+		}
 		var current producttask.Task
 		var scheduled time.Time
 		var status, difficulty string
@@ -190,6 +208,9 @@ func (service DailyTaskService) Update(ctx context.Context, command productapi.U
 		}
 		if reviewID != nil {
 			current.ReviewID = *reviewID
+		}
+		if current.MissionID != scopedMissionID || current.RouteRevisionID != scopedRouteRevisionID || focusVersion != scopedFocusVersion {
+			return idempotency.Response{}, ErrRouteConflict
 		}
 		current.Status, current.ScheduledFor = producttask.Status(status), scheduled
 		next := current
@@ -213,10 +234,6 @@ func (service DailyTaskService) Update(ctx context.Context, command productapi.U
 				return idempotency.Response{}, ErrInvalidCommand
 			}
 			if prepared.Document.MissionID != current.MissionID || prepared.Document.RouteRevisionID != current.RouteRevisionID || prepared.Document.ExpectedFocusVersion != focusVersion || prepared.Document.Difficulty != difficulty || prepared.Document.AvailableMinutes != estimatedMinutes || prepared.Document.ScheduledFor != command.RescheduleFor {
-				return idempotency.Response{}, ErrRouteConflict
-			}
-			var admissible bool
-			if lockErr := tx.QueryRow(ctx, `SELECT agent.lock_owned_daily_planning_mission($1,$2,$3,$4,$5)`, command.TenantID, command.UserID, current.MissionID, current.RouteRevisionID, focusVersion).Scan(&admissible); lockErr != nil || !admissible {
 				return idempotency.Response{}, ErrRouteConflict
 			}
 			rescheduled = command.RescheduleFor

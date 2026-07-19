@@ -80,6 +80,13 @@ func TestProjectApplicationServiceAtomicallyCommitsIdempotencyProjectAndEvent(t 
 	if err != nil || created.Version != 1 || created.Status != "active" || created.Replayed {
 		t.Fatalf("created=%#v err=%v", created, err)
 	}
+	snapshot, err := service(projectPayloadFailureStore{inner: values}).Get(ctx, productapi.ProjectGetQuery{TenantID: tenantID, UserID: userID, ProjectID: created.ID})
+	if err != nil || snapshot.Project.ID != created.ID || snapshot.Project.Version != created.Version || snapshot.Brief != command.Brief || snapshot.Workspace != nil || len(snapshot.Milestones) != 0 || len(snapshot.Artifacts) != 0 || snapshot.LatestExport != nil {
+		t.Fatalf("partial recovery snapshot=%#v err=%v", snapshot, err)
+	}
+	if _, err = service(projectPayloadFailureStore{inner: values}).Get(ctx, productapi.ProjectGetQuery{TenantID: tenantID, UserID: "d6000000-0000-4000-8000-000000000099", ProjectID: created.ID}); !errors.Is(err, productapi.ErrResourceNotFound) {
+		t.Fatalf("cross-owner recovery read=%v", err)
+	}
 	retry := command
 	retry.RequestID = "d6000000-0000-4000-8000-000000000009"
 	retry.SessionID = "d6000000-0000-4000-8000-000000000010"

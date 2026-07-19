@@ -29,3 +29,31 @@ type AggregateQueryResult struct {
 type AggregateQueryService interface {
 	Query(context.Context, AggregateQueryCommand) (AggregateQueryResult, error)
 }
+
+type AggregateSnapshotCommand struct {
+	CommandMetadata
+	MetricKey              string
+	Dimensions             map[string]string
+	TimeBucket             string
+	PeriodStart, PeriodEnd time.Time
+}
+
+type AggregateSnapshotResult struct {
+	ID                  string            `json:"id"`
+	Version             uint64            `json:"version"`
+	Status              string            `json:"status"`
+	MetricKey           string            `json:"metric_key"`
+	Dimensions          map[string]string `json:"dimensions"`
+	TimeBucket          string            `json:"time_bucket"`
+	PeriodStart         string            `json:"period_start"`
+	PeriodEnd           string            `json:"period_end"`
+	PopulationCount     int               `json:"population_count"`
+	CellCount           int               `json:"cell_count"`
+	SourceHighWatermark string            `json:"source_high_watermark"`
+	FrozenAt            time.Time         `json:"frozen_at"`
+	Replayed            bool              `json:"replayed"`
+}
+
+type AggregateSnapshotService interface {
+	Create(context.Context, AggregateSnapshotCommand) (AggregateSnapshotResult, error)
+}

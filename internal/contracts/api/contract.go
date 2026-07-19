@@ -140,7 +140,7 @@ type Resource struct {
 	TargetVersion uint64    `json:"target_version"`
 	ApprovalCount int       `json:"approval_count"`
 	UpdatedAt     time.Time `json:"updated_at"`
-	Replayed      bool      `json:"replayed,omitempty"`
+	Replayed      bool      `json:"replayed"`
 }
 
 type UsageSnapshot struct {
@@ -165,4 +165,42 @@ type Service interface {
 	ReadAudit(context.Context, AuditQuery) (AuditPage, error)
 	RequestAuditExport(context.Context, AuditExportCommand) (AuditExport, error)
 	ReadAuditExport(context.Context, AuditExportQuery) (AuditExportDownload, error)
+}
+
+type InternalUsageReserveCommand struct {
+	RequestID, IdempotencyKey, WorkloadIdentity string
+	TenantID, UserID, OperationKey              string
+	SubjectKind, SubjectID                      string
+	SubjectVersion, RequestedUnits              uint64
+	BYOK                                        bool
+}
+
+type InternalUsageSettleCommand struct {
+	RequestID, IdempotencyKey, WorkloadIdentity string
+	TenantID, ReservationID, ProviderAttemptID  string
+	ActualUnits, ProviderCostMicrounits         uint64
+	ExpectedVersion                             uint64
+}
+
+type InternalUsageReleaseCommand struct {
+	RequestID, IdempotencyKey, WorkloadIdentity string
+	TenantID, ReservationID, Reason             string
+	ExpectedVersion                             uint64
+}
+
+type InternalUsageResult struct {
+	ReservationID string    `json:"reservation_id"`
+	Status        string    `json:"status"`
+	ReservedUnits uint64    `json:"reserved_units,omitempty"`
+	SettledUnits  uint64    `json:"settled_units,omitempty"`
+	ReleasedUnits uint64    `json:"released_units,omitempty"`
+	LedgerEntryID string    `json:"ledger_entry_id,omitempty"`
+	ExpiresAt     time.Time `json:"expires_at,omitempty"`
+	Replayed      bool      `json:"replayed,omitempty"`
+}
+
+type InternalUsageService interface {
+	Reserve(context.Context, InternalUsageReserveCommand) (InternalUsageResult, error)
+	Settle(context.Context, InternalUsageSettleCommand) (InternalUsageResult, error)
+	Release(context.Context, InternalUsageReleaseCommand) (InternalUsageResult, error)
 }

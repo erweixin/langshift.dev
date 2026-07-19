@@ -1,9 +1,9 @@
 locals {
   bucket_names = {
-    payloads = "${var.name}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}-payloads"
+    payloads  = "${var.name}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}-payloads"
     artifacts = "${var.name}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}-artifacts"
-    imports  = "${var.name}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}-identity-imports"
-    audit    = "${var.name}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}-audit"
+    imports   = "${var.name}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}-identity-imports"
+    audit     = "${var.name}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}-audit"
   }
 }
 

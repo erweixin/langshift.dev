@@ -50,6 +50,7 @@ func main() {
 func run(parent context.Context, cfg config, logger *slog.Logger) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	localCompose := cfg.environment == "engineering-test" && os.Getenv("LITES_LOCAL_COMPOSE") == "true"
 	secrets, err := loadWorkerSecrets(cfg.secretBundleFile)
 	if err != nil {
 		return err
@@ -93,16 +94,20 @@ func run(parent context.Context, cfg config, logger *slog.Logger) error {
 		return errors.New("connect database")
 	}
 	defer pool.Close()
-	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: cfg.s3Region, Endpoint: cfg.s3Endpoint, UsePathStyle: cfg.s3PathStyle, AllowInsecureDevelopment: cfg.allowInsecure})
+	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: cfg.s3Region, Endpoint: cfg.s3Endpoint, UsePathStyle: cfg.s3PathStyle, AllowInsecureDevelopment: cfg.allowInsecure, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure object store")
 	}
 	blobs := s3store.Store{Client: s3Client, Bucket: cfg.payloadBucket, Prefix: cfg.payloadPrefix, MaxBytes: 4 << 20, ServerSideEncryption: cfg.s3Encryption, KMSKeyID: cfg.s3KMSKeyID, RequireDigestMetadata: true}
-	vault, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: cfg.vaultAddress, Namespace: cfg.vaultNamespace, Mount: cfg.vaultMount, TokenFile: cfg.vaultTokenFile, CACertificateFile: cfg.vaultCAFile, ClientCertificateFile: cfg.vaultCertFile, ClientKeyFile: cfg.vaultKeyFile, TLSServerName: cfg.vaultTLSName, AllowInsecureDevelopment: cfg.allowInsecure})
+	vault, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: cfg.vaultAddress, Namespace: cfg.vaultNamespace, Mount: cfg.vaultMount, TokenFile: cfg.vaultTokenFile, CACertificateFile: cfg.vaultCAFile, ClientCertificateFile: cfg.vaultCertFile, ClientKeyFile: cfg.vaultKeyFile, TLSServerName: cfg.vaultTLSName, AllowInsecureDevelopment: cfg.allowInsecure, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure Vault")
 	}
-	payloads := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vault, Prefix: cfg.vaultKeyPrefix}, Blobs: blobs}
+	payloadKeys, err := vaultkeys.ProviderForEnvironment(cfg.environment, localCompose, os.Getenv("LITES_LOCAL_PAYLOAD_KEY_SEED_FILE"), vault, cfg.vaultKeyPrefix)
+	if err != nil {
+		return errors.New("configure payload keys")
+	}
+	payloads := payload.EnvelopeStore{Keys: payloadKeys, Blobs: blobs}
 	reminderToken, err := readSecret(cfg.reminderTokenFile, 8192)
 	if err != nil {
 		return errors.New("load reminder delivery credential")

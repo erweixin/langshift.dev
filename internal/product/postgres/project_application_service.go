@@ -121,6 +121,198 @@ func (service ProjectApplicationService) List(ctx context.Context, query product
 	return productapi.ProjectListResult{Items: items, NextCursor: next}, nil
 }
 
+func (service ProjectApplicationService) Get(ctx context.Context, query productapi.ProjectGetQuery) (productapi.ProjectDetailResource, error) {
+	if !service.valid() || query.TenantID == "" || query.UserID == "" || query.ProjectID == "" {
+		return productapi.ProjectDetailResource{}, productapi.ErrValidation
+	}
+	tx, err := service.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	defer tx.Rollback(ctx)
+	if err = setProjectTenant(ctx, tx, query.TenantID); err != nil {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+
+	result := productapi.ProjectDetailResource{
+		Milestones: []productapi.ProjectMilestoneResource{},
+		Artifacts:  []productapi.ProjectArtifactResource{},
+	}
+	var briefRef, briefHash string
+	err = tx.QueryRow(ctx, `SELECT id::text,mission_id::text,accepted_route_revision_id::text,version,status,project_kind,title,created_at,updated_at,completed_at,brief_ref,brief_hash FROM product.projects WHERE tenant_id=$1 AND user_id=$2 AND id=$3`, query.TenantID, query.UserID, query.ProjectID).Scan(
+		&result.Project.ID, &result.Project.MissionID, &result.Project.RouteRevisionID, &result.Project.Version, &result.Project.Status, &result.Project.ProjectKind, &result.Project.Title, &result.Project.CreatedAt, &result.Project.UpdatedAt, &result.Project.CompletedAt, &briefRef, &briefHash,
+	)
+	if err != nil {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+
+	var workspace productapi.WorkspaceResource
+	err = tx.QueryRow(ctx, `SELECT id::text,project_id::text,workspace_id::text,branch_name,base_revision,head_revision,binding_manifest_hash,version,updated_at FROM product.project_workspace_bindings WHERE tenant_id=$1 AND user_id=$2 AND project_id=$3`, query.TenantID, query.UserID, query.ProjectID).Scan(
+		&workspace.ID, &workspace.ProjectID, &workspace.WorkspaceID, &workspace.BranchName, &workspace.BaseRevision, &workspace.HeadRevision, &workspace.BindingManifestHash, &workspace.Version, &workspace.UpdatedAt,
+	)
+	if err == nil {
+		result.Workspace = &workspace
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+
+	type resultPointer struct{ ref, hash string }
+	resultPointers := make([]resultPointer, 0)
+	rows, err := tx.Query(ctx, `SELECT id::text,version,sequence,required,status,title,COALESCE(result_ref,''),COALESCE(result_hash,''),verification_test_run_id::text,completed_at,updated_at FROM product.project_milestones WHERE tenant_id=$1 AND user_id=$2 AND project_id=$3 ORDER BY sequence,id`, query.TenantID, query.UserID, query.ProjectID)
+	if err != nil {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	for rows.Next() {
+		var item productapi.ProjectMilestoneResource
+		var pointer resultPointer
+		if err = rows.Scan(&item.ID, &item.Version, &item.Sequence, &item.Required, &item.Status, &item.Title, &pointer.ref, &pointer.hash, &item.VerificationTestRunID, &item.CompletedAt, &item.UpdatedAt); err != nil {
+			rows.Close()
+			return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+		}
+		item.EvidenceIDs = []string{}
+		result.Milestones = append(result.Milestones, item)
+		resultPointers = append(resultPointers, pointer)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	rows.Close()
+
+	evidenceByMilestone := map[string][]string{}
+	rows, err = tx.Query(ctx, `SELECT milestone_id::text,evidence_id::text FROM product.project_test_generations WHERE tenant_id=$1 AND user_id=$2 AND project_id=$3 AND status='succeeded' AND evidence_id IS NOT NULL ORDER BY completed_at,id`, query.TenantID, query.UserID, query.ProjectID)
+	if err != nil {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	for rows.Next() {
+		var milestoneID, evidenceID string
+		if err = rows.Scan(&milestoneID, &evidenceID); err != nil {
+			rows.Close()
+			return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+		}
+		evidenceByMilestone[milestoneID] = append(evidenceByMilestone[milestoneID], evidenceID)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	rows.Close()
+	for index := range result.Milestones {
+		if evidence := evidenceByMilestone[result.Milestones[index].ID]; evidence != nil {
+			result.Milestones[index].EvidenceIDs = evidence
+		}
+	}
+	milestoneIndex := make(map[string]int, len(result.Milestones))
+	for index := range result.Milestones {
+		milestoneIndex[result.Milestones[index].ID] = index
+	}
+	rows, err = tx.Query(ctx, `SELECT DISTINCT ON (milestone_id) milestone_id::text,id::text,evaluator_run_id::text,status,failure_reason,evidence_id::text,updated_at FROM product.project_test_generations WHERE tenant_id=$1 AND user_id=$2 AND project_id=$3 ORDER BY milestone_id,created_at DESC,id DESC`, query.TenantID, query.UserID, query.ProjectID)
+	if err != nil {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	for rows.Next() {
+		var milestoneID string
+		var evaluation productapi.ProjectEvaluationResource
+		if err = rows.Scan(&milestoneID, &evaluation.GenerationID, &evaluation.RunID, &evaluation.Status, &evaluation.FailureReason, &evaluation.EvidenceID, &evaluation.UpdatedAt); err != nil {
+			rows.Close()
+			return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+		}
+		if index, found := milestoneIndex[milestoneID]; found {
+			result.Milestones[index].LatestEvaluation = &evaluation
+		}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	rows.Close()
+
+	rows, err = tx.Query(ctx, `SELECT id::text,version,status,artifact_kind,title,current_revision,current_revision_id::text,updated_at FROM product.artifacts WHERE tenant_id=$1 AND user_id=$2 AND project_id=$3 ORDER BY created_at,id`, query.TenantID, query.UserID, query.ProjectID)
+	if err != nil {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	artifactIndex := map[string]int{}
+	for rows.Next() {
+		var item productapi.ProjectArtifactResource
+		if err = rows.Scan(&item.ID, &item.Version, &item.Status, &item.ArtifactKind, &item.Title, &item.CurrentRevision, &item.CurrentRevisionID, &item.UpdatedAt); err != nil {
+			rows.Close()
+			return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+		}
+		item.ArtifactRevisionIDs = []string{}
+		artifactIndex[item.ID] = len(result.Artifacts)
+		result.Artifacts = append(result.Artifacts, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	rows.Close()
+
+	rows, err = tx.Query(ctx, `SELECT artifact_id::text,id::text FROM product.artifact_revisions WHERE tenant_id=$1 AND user_id=$2 AND project_id=$3 ORDER BY artifact_id,revision,id`, query.TenantID, query.UserID, query.ProjectID)
+	if err != nil {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	for rows.Next() {
+		var artifactID, revisionID string
+		if err = rows.Scan(&artifactID, &revisionID); err != nil {
+			rows.Close()
+			return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+		}
+		if index, found := artifactIndex[artifactID]; found {
+			result.Artifacts[index].ArtifactRevisionIDs = append(result.Artifacts[index].ArtifactRevisionIDs, revisionID)
+		}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	rows.Close()
+
+	var latest productapi.ProjectExportResource
+	err = tx.QueryRow(ctx, `SELECT id::text,status,version,content_hash,media_type,byte_size,failure_code,created_at,completed_at,expires_at FROM product.portfolio_exports WHERE tenant_id=$1 AND user_id=$2 AND project_id=$3 ORDER BY created_at DESC,id DESC LIMIT 1`, query.TenantID, query.UserID, query.ProjectID).Scan(
+		&latest.ID, &latest.Status, &latest.Version, &latest.ContentHash, &latest.MediaType, &latest.ByteSize, &latest.FailureCode, &latest.CreatedAt, &latest.CompletedAt, &latest.ExpiresAt,
+	)
+	if err == nil {
+		result.LatestExport = &latest
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+
+	var brief struct {
+		SchemaVersion int    `json:"schema_version"`
+		Brief         string `json:"brief"`
+	}
+	encoded, err := service.Payloads.Get(ctx, payload.Descriptor{TenantID: query.TenantID, ObjectID: query.ProjectID, Class: projectBriefClass, ContentType: "application/json"}, payload.Manifest{Ref: briefRef, Hash: briefHash})
+	if err != nil || decodeProjectResponse(encoded, &brief) != nil || brief.SchemaVersion != 1 || !validProjectText(brief.Brief, 10000) {
+		if err == nil {
+			err = payload.ErrIntegrity
+		}
+		return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+	}
+	result.Brief = brief.Brief
+	for index, pointer := range resultPointers {
+		if pointer.ref == "" {
+			continue
+		}
+		var stored struct {
+			SchemaVersion int    `json:"schema_version"`
+			Result        string `json:"result"`
+		}
+		encoded, err = service.Payloads.Get(ctx, payload.Descriptor{TenantID: query.TenantID, ObjectID: result.Milestones[index].ID, Class: projectResultClass, ContentType: "application/json"}, payload.Manifest{Ref: pointer.ref, Hash: pointer.hash})
+		if err != nil || decodeProjectResponse(encoded, &stored) != nil || stored.SchemaVersion != 1 || !validProjectText(stored.Result, 20000) {
+			if err == nil {
+				err = payload.ErrIntegrity
+			}
+			return productapi.ProjectDetailResource{}, service.mapProjectError(err)
+		}
+		result.Milestones[index].Result = &stored.Result
+	}
+	return result, nil
+}
+
 func (service ProjectApplicationService) Create(ctx context.Context, command productapi.CreateProjectCommand) (productapi.ProjectMutationResult, error) {
 	if !service.valid() || !validProjectMetadata(command.CommandMetadata) || command.MissionID == "" || command.RouteRevisionID == "" || !validProjectKind(command.ProjectKind) || !validProjectText(command.Title, 200) || !validProjectText(command.Brief, 10000) {
 		return productapi.ProjectMutationResult{}, productapi.ErrValidation

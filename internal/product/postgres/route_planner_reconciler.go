@@ -32,6 +32,7 @@ type RoutePlannerReconcileResult struct {
 type terminalPlannerRun struct {
 	RevisionID, UserID, RunID, RunStatus, CorrelationID string
 	RevisionVersion                                     uint64
+	InputManifest                                       json.RawMessage
 }
 
 type plannerMessageDocument struct {
@@ -115,6 +116,15 @@ func (reconciler RoutePlannerReconciler) reconcileSuccess(ctx context.Context, t
 		replayed, failErr := reconciler.reconcileFailure(ctx, tenantID, item, "planner_output_invalid")
 		return "failed", replayed, failErr
 	}
+	manifest, err := decodeRouteInputManifest(item.InputManifest)
+	if err != nil {
+		replayed, failErr := reconciler.reconcileFailure(ctx, tenantID, item, "planner_input_invalid")
+		return "failed", replayed, failErr
+	}
+	if err = productroute.ValidateGrounding(document, routeGroundingInput(manifest)); err != nil {
+		replayed, failErr := reconciler.reconcileFailure(ctx, tenantID, item, "planner_output_ungrounded")
+		return "failed", replayed, failErr
+	}
 	canonical, err := json.Marshal(document)
 	if err != nil {
 		return "", false, err
@@ -173,7 +183,7 @@ func (reconciler RoutePlannerReconciler) loadTerminalRuns(ctx context.Context, t
 	if _, err = tx.Exec(ctx, `SELECT set_config('lites.tenant_id',$1,true)`, tenantID); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT r.id::text,r.user_id::text,r.version,r.planner_run_id::text,ar.status,e.correlation_id::text
+	rows, err := tx.Query(ctx, `SELECT r.id::text,r.user_id::text,r.version,r.input_manifest,r.planner_run_id::text,ar.status,e.correlation_id::text
 		FROM product.route_revisions r
 		JOIN agent.runs ar ON ar.tenant_id=r.tenant_id AND ar.id=r.planner_run_id
 		JOIN agent.events e ON e.tenant_id=ar.tenant_id AND e.aggregate_kind='run' AND e.aggregate_id=ar.id AND e.event_type='RunAccepted'
@@ -186,7 +196,7 @@ func (reconciler RoutePlannerReconciler) loadTerminalRuns(ctx context.Context, t
 	items := make([]terminalPlannerRun, 0, limit)
 	for rows.Next() {
 		var item terminalPlannerRun
-		if err = rows.Scan(&item.RevisionID, &item.UserID, &item.RevisionVersion, &item.RunID, &item.RunStatus, &item.CorrelationID); err != nil {
+		if err = rows.Scan(&item.RevisionID, &item.UserID, &item.RevisionVersion, &item.InputManifest, &item.RunID, &item.RunStatus, &item.CorrelationID); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -198,6 +208,24 @@ func (reconciler RoutePlannerReconciler) loadTerminalRuns(ctx context.Context, t
 		return nil, err
 	}
 	return items, nil
+}
+
+func routeGroundingInput(manifest routeInputManifest) productroute.GroundingInput {
+	result := productroute.GroundingInput{
+		Claims:              make([]productroute.GroundingClaim, 0, len(manifest.ClaimRevisions)),
+		Evidence:            make([]productroute.GroundingEvidence, 0, len(manifest.EvidenceRevisions)),
+		TargetCapabilityIDs: make([]string, 0, len(manifest.TargetRequirements)),
+	}
+	for _, claim := range manifest.ClaimRevisions {
+		result.Claims = append(result.Claims, productroute.GroundingClaim{CapabilityID: claim.CapabilityID, Status: claim.Status, VerificationLevel: claim.VerificationLevel, SupportingEvidenceIDs: append([]string(nil), claim.EvidenceIDs...)})
+	}
+	for _, evidence := range manifest.EvidenceRevisions {
+		result.Evidence = append(result.Evidence, productroute.GroundingEvidence{ID: evidence.ID, Status: evidence.Status, Invalidated: evidence.Invalidated != nil})
+	}
+	for _, requirement := range manifest.TargetRequirements {
+		result.TargetCapabilityIDs = append(result.TargetCapabilityIDs, requirement.CapabilityID)
+	}
+	return result
 }
 
 func (reconciler RoutePlannerReconciler) loadAssistantMessage(ctx context.Context, tenantID string, item terminalPlannerRun) ([]byte, error) {

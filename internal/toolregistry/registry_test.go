@@ -83,6 +83,8 @@ func TestRegistryRejectsRemoteRefsOpenSchemasAndInvalidRuntime(t *testing.T) {
 		}},
 		{"ip egress", func(value *Descriptor) { value.EgressAllowlist = []string{"127.0.0.1"} }},
 		{"effect mismatch", func(value *Descriptor) { value.EffectClass, value.RequiresEffectKey = "irreversible_write", false }},
+		{"tenant custom source", func(value *Descriptor) { value.Source = "tenant_custom" }},
+		{"marketplace source", func(value *Descriptor) { value.Source = "marketplace" }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

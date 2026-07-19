@@ -108,7 +108,12 @@ func (handler Handler) onboardingRoutePreview(writer http.ResponseWriter, reques
 		handler.serviceError(writer, request, err)
 		return
 	}
+	if result.RunID == "" || result.Status != "accepted" || result.AcceptedAt.IsZero() || result.Version != expected+1 {
+		handler.internalError(writer, request)
+		return
+	}
 	writer.Header().Set("ETag", strconv.Quote(strconv.FormatUint(result.Version, 10)))
+	writer.Header().Set("Cache-Control", "no-store")
 	handler.writeJSON(writer, http.StatusAccepted, result)
 }
 
@@ -130,6 +135,10 @@ func (handler Handler) onboardingRouteGet(writer http.ResponseWriter, request *h
 	result, err := handler.Routes.GetRoute(request.Context(), id, claims.TenantID, claims.SubjectID, claims.AnonymousSubjectID)
 	if err != nil {
 		handler.serviceError(writer, request, err)
+		return
+	}
+	if result.ID != id || result.Version < 1 || result.Status == "" || result.UpdatedAt.IsZero() || len(result.Route) == 0 || !json.Valid(result.Route) {
+		handler.internalError(writer, request)
 		return
 	}
 	writer.Header().Set("ETag", strconv.Quote(strconv.FormatUint(result.Version, 10)))

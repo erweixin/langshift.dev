@@ -106,6 +106,21 @@ func TestRouteArtifactPinsFileAndRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestFinalizeRouteDefinitionsUsesArtifactCanonicalHashes(t *testing.T) {
+	definition := testRouteDefinition([]RouteCandidateDefinition{{ProviderID: "openai", ModelID: "reasoning", ModelVersion: "2026-07-01", BoundHost: "api.openai.com", PricingVersion: "price-v1", CredentialMode: "managed"}})
+	finalized, err := FinalizeRouteDefinitions([]RouteDefinition{definition})
+	if err != nil || len(finalized) != 1 || finalized[0].ModelHash == "" || finalized[0].RouterHash == "" {
+		t.Fatalf("finalized=%#v error=%v", finalized, err)
+	}
+	encoded, fileHash, err := EncodeRouteArtifact(finalized, strings.Repeat("a", 40), time.Date(2026, time.July, 16, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = DecodeRouteArtifact(encoded, fileHash); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testRouteArtifact(t *testing.T, candidates []RouteCandidateDefinition) RouteArtifact {
 	t.Helper()
 	encoded, hash, err := EncodeRouteArtifact([]RouteDefinition{testRouteDefinition(candidates)}, strings.Repeat("a", 40), time.Date(2026, time.July, 16, 9, 0, 0, 0, time.UTC))

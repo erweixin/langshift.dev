@@ -22,6 +22,7 @@ type ClientConfig struct {
 	ClientKeyFile            string
 	TLSServerName            string
 	AllowInsecureDevelopment bool
+	AllowLocalCompose        bool
 }
 
 func NewClient(configuration ClientConfig) (valkey.Client, error) {
@@ -56,7 +57,7 @@ func clientOption(configuration ClientConfig) (valkey.ClientOption, error) {
 		if err != nil || host == "" || port == "" {
 			return valkey.ClientOption{}, ErrConfiguration
 		}
-		if configuration.AllowInsecureDevelopment && !isLoopback(host) {
+		if configuration.AllowInsecureDevelopment && !isLoopback(host) && !(configuration.AllowLocalCompose && host == "valkey") {
 			return valkey.ClientOption{}, ErrConfiguration
 		}
 	}

@@ -357,3 +357,11 @@ LangShift 的目标不是让用户学完一门课，而是帮助用户完成一�
 ```
 
 最终，LangShift 要做的不是一个更大的课程平台，而是一个更懂“转变”的成长系统。
+
+---
+
+## 工程与商业边界
+
+当前仓库实现目标是 Lites 职业迁移垂直 SaaS；Cloud Agent 只服务于路线规划、任务、辅导、评审和作品构建，不对外建设通用 PaaS、SDK、开发者 token 或 Agent/Tool 市场。企业权益通过线下合同、席位、额度与 usage ledger 管理，不包含在线支付 API。
+
+详细阶段、macOS 验收和生产前置条件见 [商业化实施计划](./docs/product-implementation-plan.md)。`npm run local:product:e2e` 会在 Docker Desktop 中启动完整本地主旅程、运行桌面/移动无 Demo E2E 并执行数据库备份恢复 smoke；统一工程门禁是 `npm run verify:macos`，生产契约验证是 `npm run verify:production-contracts`。前者全部通过后只能产生 `engineering_rc_passed`；后者即使通过也只能产生 `fixture_validated`。在真实 Linux/KVM、官方云多可用区与灾备、外部渗透测试、真实模型双语评审、design-partner pilot、法律激活和首个客户交付演练完成前，不得宣称 Commercial GA。

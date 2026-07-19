@@ -9,6 +9,8 @@
 - LLM 只提出计划，真正的权限、工具执行、安全审批和状态推进都由平台负责。
 - 多 Agent、长期记忆、流式输出和自动工具执行都不是默认魔法，而是建立在状态机、权限、隔离和可观测之上的可选能力。
 - [product-implementation-plan.md](./product-implementation-plan.md) 按阶段定义产品范围、macOS 工程门禁和 Commercial GA 前置条件；本轮目标是 Engineering Release Candidate，不把契约模拟视为生产 GA 证据。
+- [implementation-baseline.json](../contracts/traceability/implementation-baseline.json) 为当前实现状态的机读基线；它与 capability inventory、OpenAPI 和阶段 0 验证器共同生成逐能力、逐接口的覆盖与证据分类报告。
+- [lites.current.openapi.json](../contracts/openapi/lites.current.openapi.json) 是由冻结基础规范与全部有序 amendment 生成的当前应用契约；Web 类型和客户端路径校验以它为准，它不是对外开发者平台承诺。
 
 ## 怎么读
 
@@ -56,8 +58,8 @@
 
 这份计划是目标状态和实施边界，不是当前实现状态。阶段 0–7 是内部工程门禁，最终产物为 Engineering Release Candidate；真实 Linux/KVM、云高可用、容量、灾备、外部安全评估和用户 pilot 完成前不能宣称 Commercial GA。实现各模块时仍须遵守对应架构专题中的状态机、持久化、安全和运维语义。
 
-## 已有内容为什么被移除
+## 当前实现与历史材料
 
-被移除的旧文档主要属于具体产品或旧实现切片，例如内容体系、课程、学习者画像、练习 runtime、增长、实现计划、实现状态、前端产品蓝图、生成 schema 和本地开发脚本。
+职业内容、用户画像、成长闭环、前端、生成 schema、本地开发脚本和阶段实施状态都已经在当前仓库中恢复为受测试约束的实现或明确的计划项。不能再依据旧的“代码已移除”描述判断仓库范围。
 
-如果这些主题以后重新进入范围，应从这套架构内核重新推导，而不是把旧实现整块恢复回来。
+历史 gate-report 和原型仍可用于理解设计演进，但只有绑定当前干净提交并实际执行的报告才是 `passed` 证据。当前事实以 [implementation-baseline.json](../contracts/traceability/implementation-baseline.json)、OpenAPI、生产 handler、测试和 `verify:macos` 的同提交报告为准。

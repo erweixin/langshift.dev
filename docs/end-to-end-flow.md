@@ -1,6 +1,6 @@
 # 端到端架构与任务执行流程
 
-> 定位：主线文档。本文档用一条完整任务说明系统怎么跑起来。想先看全局模型，请读 [architecture.md](./architecture.md)；想查状态怎么转，读 [state-machines.md](./state-machines.md)；想查数据库写入规则，读 [concurrency-and-durability.md](./concurrency-and-durability.md)；想查 Worker 怎么执行，读 [execution-model.md](./execution-model.md)。
+> 定位：主线文档。本文档用一条完整任务说明 Lites 职业迁移 SaaS 的内部 Agent 执行层怎么跑起来，不定义开发者平台或公共 Agent API。想先看全局模型，请读 [architecture.md](./architecture.md)；想查状态怎么转，读 [state-machines.md](./state-machines.md)；想查数据库写入规则，读 [concurrency-and-durability.md](./concurrency-and-durability.md)；想查 Worker 怎么执行，读 [execution-model.md](./execution-model.md)。
 
 ## 为什么需要端到端视角
 
@@ -19,7 +19,7 @@ Cloud Agent 任务通常不是一次同步调用。一个“帮我修复这个 B
 
 ## 一句话说明
 
-Lites Cloud Agent 是一个以 EventStore 为事实源的异步 Agent 执行平台。简单说：API 只负责受理，EventService 负责记账和推进状态，Worker 每次只执行一步，Runtime 隔离文件和外部副作用，Realtime 只负责通知，Sweeper 和 Repair API 负责把异常情况收敛回来。
+Lites 内部 Cloud Agent 是一个以 EventStore 为事实源的异步执行内核。简单说：产品 API 只负责受理职业迁移任务，EventService 负责记账和推进状态，Worker 每次只执行一步，Runtime 隔离文件和外部副作用，Realtime 只负责通知，Sweeper 和 Repair API 负责把异常情况收敛回来。
 
 ```mermaid
 flowchart LR

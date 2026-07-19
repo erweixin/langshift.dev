@@ -108,6 +108,33 @@ func TestEndpointPolicyRejectsEverySpecialAddressAndMixedDNSAnswer(t *testing.T)
 	}
 }
 
+func TestEndpointPolicyAllowsOnlyExactRFC1918EngineeringHost(t *testing.T) {
+	const host = "model-adapter.lites.test"
+	private := resolverResult{addresses: addresses("172.20.0.9")}
+	policy := EndpointPolicy{Resolver: &resolverStub{results: []resolverResult{private}}, PrivateEngineeringTestHost: host}
+	endpoint, err := policy.Validate(t.Context(), "https://"+host+"/v1/", host)
+	if err != nil || endpoint.BoundHost != host {
+		t.Fatalf("engineering endpoint=%#v error=%v", endpoint, err)
+	}
+	for name, candidate := range map[string]resolverResult{
+		"other private host": private,
+		"loopback":           {addresses: addresses("127.0.0.1")},
+		"link local":         {addresses: addresses("169.254.169.254")},
+		"mixed public":       {addresses: addresses("172.20.0.9", "8.8.8.8")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidateHost := host
+			if name == "other private host" {
+				candidateHost = "other.lites.test"
+			}
+			candidatePolicy := EndpointPolicy{Resolver: &resolverStub{results: []resolverResult{candidate}}, PrivateEngineeringTestHost: host}
+			if _, validateErr := candidatePolicy.Validate(t.Context(), "https://"+candidateHost+"/v1/", candidateHost); !errors.Is(validateErr, ErrUnsafeEndpoint) {
+				t.Fatalf("unsafe engineering destination accepted: %v", validateErr)
+			}
+		})
+	}
+}
+
 func TestEndpointPolicyRequiresResolutionAndExplicitCustomPortAllowlist(t *testing.T) {
 	failing := &resolverStub{results: []resolverResult{{err: errors.New("resolver detail must not escape")}}}
 	if _, err := (EndpointPolicy{Resolver: failing}).Validate(t.Context(), "https://api.example.com", ""); !errors.Is(err, ErrUnsafeEndpoint) || errors.Is(err, failing.results[0].err) {

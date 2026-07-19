@@ -6,10 +6,11 @@ import type { Locale } from "@/i18n/config";
 import { demoMode } from "@/lib/demo";
 import { demoMission, demoTask } from "@/lib/model";
 import { useProductWorkspace } from "@/lib/use-product-workspace";
+import { WorkspaceLoadError } from "./workspace-load-error";
 
 export function TodayWorkspace({ locale }: { locale: Locale }) {
   const zh = locale === "zh-CN";
-  const workspace = useProductWorkspace(locale, !demoMode);
+  const workspace = useProductWorkspace(locale, !demoMode, true);
   const today = new Intl.DateTimeFormat(locale, { weekday: "short", month: "short", day: "numeric" }).format(new Date());
   const focus = workspace.missions.focus;
   const task = workspace.currentTask;
@@ -24,7 +25,7 @@ export function TodayWorkspace({ locale }: { locale: Locale }) {
   const activeStage = demoMode ? 1 : stageCount ? 1 : 0;
 
   return <div className="page-wrap today-page"><header className="page-head"><div><p className="eyebrow">{zh ? "今日一步" : "One step today"}</p><h1>{zh ? "早上好。" : "Good morning."}</h1><p>{zh ? "今天只需要完成一项能验证判断的工作。" : "Today needs one piece of work that can test a judgment."}</p></div><div className="date-pill"><CalendarDays /> {today}</div></header>
-    {!demoMode && workspace.error && <section className="card error-note" role="alert">{workspace.error}</section>}
+    {!demoMode && workspace.error && <WorkspaceLoadError locale={locale} message={workspace.error} loading={workspace.loading} onRetry={workspace.retry} />}
     {!demoMode && workspace.loading && <section className="focus-card" aria-live="polite"><p>{zh ? "正在读取 Focus、路线和今日任务…" : "Loading your Focus, route, and task…"}</p></section>}
     {!demoMode && !workspace.loading && !focus && <section className="focus-card"><div className="focus-content"><div><p className="section-label">Mission</p><h2>{zh ? "先创建一个可执行的成长目标" : "Create an executable growth goal first"}</h2><p>{zh ? "选择当前与目标角色后，Coach 会生成可验证路线。" : "Choose current and target roles, then Coach will build a verifiable route."}</p></div><Link className="button primary" href={`/${locale}/onboarding?new=mission`}>{zh ? "创建 Mission" : "Create Mission"}<ArrowRight /></Link></div></section>}
     {(demoMode || focus && !workspace.loading) && <>

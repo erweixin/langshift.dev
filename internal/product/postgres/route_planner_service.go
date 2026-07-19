@@ -22,7 +22,7 @@ import (
 
 const defaultRoutePlannerConsumer = "product-route-planner"
 
-const routePlannerOutputContract = `Return exactly one JSON object and no markdown fences. Required closed shape: {"schema_version":1,"summary":"string","transferable_experience":[{"statement":"string","capability_ids":["string"],"evidence_ids":["string"],"confidence":"inferred|supported|verified"}],"gaps":[same assessment shape],"bridge":[{"id":"lowercase_id","title":"string","rationale":"string","from_capability_ids":["string"],"to_capability_ids":["string"]}],"stages":[{"id":"lowercase_id","title":"string","outcome":"string","capability_ids":["string"],"evidence_required":["string"]}],"first_task":{"title":"string","objective":"string","estimated_minutes":5..480,"difficulty":"easy|standard|stretch","capability_ids":["string"],"success_criteria":["string"]}}. Include 1..16 bridge items and 2..12 stages. Never present inferred capability as verified.`
+const routePlannerOutputContract = `Return exactly one JSON object and no markdown fences. Required closed shape: {"schema_version":1,"summary":"string","transferable_experience":[{"statement":"string","capability_ids":["string"],"evidence_ids":["string"],"confidence":"inferred|supported|verified"}],"gaps":[same assessment shape],"bridge":[{"id":"lowercase_id","title":"string","rationale":"string","from_capability_ids":["string"],"to_capability_ids":["string"]}],"stages":[{"id":"lowercase_id","title":"string","outcome":"string","capability_ids":["string"],"evidence_required":["string"]}],"first_task":{"title":"string","objective":"string","estimated_minutes":5..480,"difficulty":"easy|standard|stretch","capability_ids":["string"],"success_criteria":["string"]}}. Include 1..16 bridge items and 2..12 stages. Use only capability IDs from current active claim revisions or target_requirements, and only evidence IDs from current non-invalidated evidence revisions. supported and verified assessments must cite evidence linked to the current claim revision; verified also requires verified evidence and a demonstrated, applied, or reviewer_verified claim. Never present inferred capability as verified.`
 
 var ErrRoutePlannerCommand = errors.New("route planner command is invalid")
 
@@ -200,8 +200,12 @@ type plannerPayloads struct {
 }
 
 func (service RoutePlannerService) prepareRunPayloads(ctx context.Context, command eventpostgres.DeliveredCommand, record plannerRouteRecord, manifest routeInputManifest, identifiers plannerIdentifiers) (plannerPayloads, error) {
+	promptText, err := service.routePlannerPromptText(ctx, command.TenantID, record, manifest)
+	if err != nil {
+		return plannerPayloads{}, err
+	}
 	prompt := map[string]any{
-		"schema_version": 1, "role": "user", "content": []map[string]any{{"type": "text", "text": "Generate a production route revision from this immutable input manifest. " + routePlannerOutputContract + "\nINPUT_MANIFEST=" + string(record.InputManifest)}},
+		"schema_version": 1, "role": "user", "content": []map[string]any{{"type": "text", "text": promptText}},
 	}
 	messageJSON, err := json.Marshal(prompt)
 	if err != nil {
@@ -240,6 +244,18 @@ func (service RoutePlannerService) prepareRunPayloads(ctx context.Context, comma
 	}
 	result.startCommand, err = put(identifiers.startCommandID, "agent-run-command", map[string]any{"schema_version": 1, "run_id": identifiers.runID, "correlation_id": identifiers.correlationID})
 	return result, err
+}
+
+func (service RoutePlannerService) routePlannerPromptText(ctx context.Context, tenantID string, record plannerRouteRecord, manifest routeInputManifest) (string, error) {
+	text := "Generate a production route revision from this immutable input manifest. " + routePlannerOutputContract + "\nINPUT_MANIFEST=" + string(record.InputManifest)
+	if manifest.Onboarding == nil {
+		return text, nil
+	}
+	intake, err := service.Payloads.Get(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: manifest.Onboarding.SessionID, Class: "onboarding-body", ContentType: "application/json"}, manifest.Onboarding.ExperiencePayload)
+	if err != nil || !validJSONObject(intake) {
+		return "", errors.Join(payload.ErrIntegrity, err)
+	}
+	return text + "\nONBOARDING_INTAKE=" + string(intake), nil
 }
 
 func (service RoutePlannerService) loadRoute(ctx context.Context, command eventpostgres.DeliveredCommand) (plannerRouteRecord, routeInputManifest, error) {
@@ -289,7 +305,7 @@ func decodeRouteInputManifest(encoded []byte) (routeInputManifest, error) {
 	var manifest routeInputManifest
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&manifest) != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) || manifest.SchemaVersion != 2 || manifest.AgentProfile.Profile != string(behavior.RoutePlanner) || manifest.AgentProfile.Environment != "staging" && manifest.AgentProfile.Environment != "production" || manifest.AgentProfile.ChannelID == "" || manifest.AgentProfile.Sequence == 0 || manifest.AgentProfile.SnapshotID == "" || manifest.AgentProfileSnapshotID != manifest.AgentProfile.SnapshotID || manifest.Mission.ID == "" || manifest.Mission.ClaimSetHash == "" || manifest.OntologySnapshotID == "" || manifest.ContentSnapshotID == "" {
+	if decoder.Decode(&manifest) != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) || manifest.SchemaVersion != 2 && manifest.SchemaVersion != 3 && manifest.SchemaVersion != 4 || manifest.AgentProfile.Profile != string(behavior.RoutePlanner) || manifest.AgentProfile.Environment != "staging" && manifest.AgentProfile.Environment != "production" || manifest.AgentProfile.ChannelID == "" || manifest.AgentProfile.Sequence == 0 || manifest.AgentProfile.SnapshotID == "" || manifest.AgentProfileSnapshotID != manifest.AgentProfile.SnapshotID || manifest.Mission.ID == "" || manifest.Mission.ClaimSetHash == "" || manifest.OntologySnapshotID == "" || manifest.ContentSnapshotID == "" || manifest.Onboarding != nil && (manifest.Onboarding.SessionID == "" || manifest.Onboarding.Version < 1 || manifest.Onboarding.ExperiencePayload.Ref == "" || manifest.Onboarding.ExperiencePayload.Hash == "") {
 		return routeInputManifest{}, ErrRoutePlannerCommand
 	}
 	return manifest, nil
@@ -300,22 +316,20 @@ func sameRouteBehavior(left, right routeBehaviorBinding) bool {
 }
 
 func (service RoutePlannerService) identifiers(commandID string) (plannerIdentifiers, error) {
-	domains := []string{"route-planner-conversation", "route-planner-message", "route-planner-run", "run-start-command", "route-planner-correlation"}
+	domains := []string{"route-planner-conversation", "route-planner-message", "route-planner-run", "route-planner-correlation"}
 	values := make([]string, len(domains))
 	for index, domain := range domains {
-		seed := commandID
-		if domain == "run-start-command" {
-			// RunStore derives execution identifiers from run_id, not the source
-			// product command.
-			seed = values[2]
-		}
-		value, err := ids.DeterministicUUID(service.IDKey, domain, seed)
+		value, err := ids.DeterministicUUID(service.IDKey, domain, commandID)
 		if err != nil {
 			return plannerIdentifiers{}, err
 		}
 		values[index] = value
 	}
-	return plannerIdentifiers{values[0], values[1], values[2], values[3], values[4]}, nil
+	startCommand, err := executionpostgres.RunStartCommandID(service.Runs.IDKey, values[2])
+	if err != nil {
+		return plannerIdentifiers{}, err
+	}
+	return plannerIdentifiers{values[0], values[1], values[2], startCommand, values[3]}, nil
 }
 
 func (service RoutePlannerService) actor() json.RawMessage {

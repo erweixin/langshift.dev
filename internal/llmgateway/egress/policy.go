@@ -43,6 +43,11 @@ type EndpointPolicy struct {
 	Resolver         Resolver
 	PlatformNetworks []netip.Prefix
 	AllowedPorts     map[uint16]struct{}
+	// PrivateEngineeringTestHost is an intentionally narrow escape hatch for
+	// the TLS model adapter used by the macOS engineering gate. A caller must
+	// opt in to one exact, DNS-bound host. Loopback, link-local, metadata and
+	// every other private destination remain denied.
+	PrivateEngineeringTestHost string
 }
 
 func (policy EndpointPolicy) Validate(ctx context.Context, rawURL, expectedBoundHost string) (Endpoint, error) {
@@ -83,7 +88,7 @@ func (policy EndpointPolicy) Validate(ctx context.Context, rawURL, expectedBound
 	if err != nil || len(addresses) == 0 {
 		return Endpoint{}, fmt.Errorf("%w: dns resolution failed", ErrUnsafeEndpoint)
 	}
-	if err = validateAddresses(addresses, policy.PlatformNetworks); err != nil {
+	if err = policy.validateAddresses(host, addresses); err != nil {
 		return Endpoint{}, err
 	}
 	parsed.Scheme = "https"
@@ -96,6 +101,38 @@ func (policy EndpointPolicy) Validate(ctx context.Context, rawURL, expectedBound
 	parsed.RawQuery = ""
 	origin := "https://" + parsed.Host
 	return Endpoint{URL: parsed, Origin: origin, BoundHost: host, DialPort: port, RequestURL: parsed.String()}, nil
+}
+
+func (policy EndpointPolicy) validateAddresses(host string, addresses []netip.Addr) error {
+	if policy.PrivateEngineeringTestHost == "" || host != policy.PrivateEngineeringTestHost {
+		return validateAddresses(addresses, policy.PlatformNetworks)
+	}
+	seen := make(map[netip.Addr]struct{}, len(addresses))
+	for _, address := range addresses {
+		address = address.Unmap()
+		if !address.IsValid() || !address.IsGlobalUnicast() || !privateEngineeringAddress(address) {
+			return ErrUnsafeEndpoint
+		}
+		for _, network := range policy.PlatformNetworks {
+			if network.IsValid() && network.Contains(address) {
+				return ErrUnsafeEndpoint
+			}
+		}
+		seen[address] = struct{}{}
+	}
+	if len(seen) == 0 {
+		return ErrUnsafeEndpoint
+	}
+	return nil
+}
+
+func privateEngineeringAddress(address netip.Addr) bool {
+	for _, prefix := range engineeringPrivateNetworks {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
 }
 
 func canonicalHost(value string) (string, error) {
@@ -188,4 +225,10 @@ var deniedNetworks = []netip.Prefix{
 	netip.MustParsePrefix("fc00::/7"),
 	netip.MustParsePrefix("fe80::/10"),
 	netip.MustParsePrefix("ff00::/8"),
+}
+
+var engineeringPrivateNetworks = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
 }

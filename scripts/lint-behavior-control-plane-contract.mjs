@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root=resolve(import.meta.dirname,"..");
+const reportRoot=resolve(root,process.env.LITES_GATE_REPORT_ROOT??"gate-reports");
+const reportTarget=name=>resolve(reportRoot,"stage-3",name);
 const sha256=value=>createHash("sha256").update(typeof value==="string"||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest("hex");
 const read=path=>readFile(resolve(root,path));
 const load=async path=>JSON.parse(await read(path));
@@ -74,8 +76,8 @@ check("CONTENT-ROOT",amendment.baseAmendmentId===base.amendmentId&&amendment.bas
 const failures=checks.filter(item=>item.status==="failed");
 const reportBase={reportVersion:"1.0.0",stage:3,kind:"behavior-control-plane-contract-lint",status:failures.length?"failed":"passed",summary:{checks:checks.length,passed:checks.length-failures.length,failed:failures.length},results:checks,amendmentId:amendment.amendmentId,contentRootSha256};
 const report={...reportBase,reportHash:sha256(reportBase)};
-await mkdir(resolve(root,"gate-reports/stage-3"),{recursive:true});
-await writeFile(resolve(root,"gate-reports/stage-3/contract-amendment-v1.10.json"),`${JSON.stringify(amendment,null,2)}\n`);
-await writeFile(resolve(root,"gate-reports/stage-3/behavior-control-plane-contract-lint.json"),`${JSON.stringify(report,null,2)}\n`);
+await mkdir(reportTarget("."),{recursive:true});
+await writeFile(reportTarget("contract-amendment-v1.10.json"),`${JSON.stringify(amendment,null,2)}\n`);
+await writeFile(reportTarget("behavior-control-plane-contract-lint.json"),`${JSON.stringify(report,null,2)}\n`);
 console.log(`${report.status}: ${report.summary.passed}/${report.summary.checks} behavior control-plane contract checks passed; report ${report.reportHash}`);
 if(failures.length) process.exitCode=1;

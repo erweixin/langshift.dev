@@ -14,8 +14,9 @@ for (let index = 2; index < process.argv.length; index += 2) {
 
 const sourceCommit = args.get("--source-commit");
 const resolvedComposePath = args.get("--resolved-compose");
-if (!/^[0-9a-f]{40}$/.test(sourceCommit ?? "") || !resolvedComposePath) {
-  throw new Error("usage: write-stage2-infrastructure-report.mjs --source-commit <40-hex> --resolved-compose <path>");
+const postgresCounts = args.get("--postgres-counts")?.split(":").map(Number);
+if (!/^[0-9a-f]{40}$/.test(sourceCommit ?? "") || !resolvedComposePath || postgresCounts?.length !== 2 || postgresCounts.some(value=>!Number.isInteger(value)||value<1)) {
+  throw new Error("usage: write-stage2-infrastructure-report.mjs --source-commit <40-hex> --resolved-compose <path> --postgres-counts <tables:forced-rls>");
 }
 
 const root = process.cwd();
@@ -91,7 +92,7 @@ const report = {
   },
   results: {
     composeContract: "13/13 services validated",
-    postgres: { tables: 92, forcedRlsTables: 85, temporaryReadWrite: "passed" },
+    postgres: { tables: postgresCounts[0], forcedRlsTables: postgresCounts[1], temporaryReadWrite: "passed" },
     jetstream: { streamCreate: "passed", publish: "passed", messages: 1 },
     valkey: { authenticatedSetGet: "passed" },
     objectStorage: { buckets: 2, versioning: "enabled", writeRead: "passed" },

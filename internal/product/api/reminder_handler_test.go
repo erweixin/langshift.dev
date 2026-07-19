@@ -43,7 +43,7 @@ func TestReminderHandlerCreateListAndCASUpdate(t *testing.T) {
 			return ReminderResource{ID: id, Version: 1, Status: "active", NextOccurrenceAt: &next}, nil
 		},
 		update: func(command UpdateReminderCommand) (ReminderResource, error) {
-			if command.ReminderID != id || command.Action != "pause" || command.ExpectedVersion != 1 || command.IdempotencyKey != "reminder-pause-key-001" {
+			if command.ReminderID != id || command.Action != "pause" || command.OperationID != "reminders.update.v2" || command.ExpectedVersion != 1 || command.IdempotencyKey != "reminder-pause-key-001" {
 				t.Fatalf("command=%#v", command)
 			}
 			return ReminderResource{ID: id, Version: 2, Status: "paused"}, nil
@@ -69,6 +69,22 @@ func TestReminderHandlerCreateListAndCASUpdate(t *testing.T) {
 	pause.handler(ReminderHandler{Service: service}).ServeHTTP(pauseRecorder, pause.request)
 	if pauseRecorder.Code != http.StatusOK || pauseRecorder.Header().Get("ETag") != `"2"` {
 		t.Fatalf("pause status=%d body=%s", pauseRecorder.Code, pauseRecorder.Body.String())
+	}
+}
+
+func TestReminderHandlerDeleteUsesDedicatedCancellationScopeAndReason(t *testing.T) {
+	id := "bb000000-0000-4000-8000-000000000011"
+	service := reminderServiceStub{update: func(command UpdateReminderCommand) (ReminderResource, error) {
+		if command.ReminderID != id || command.Action != "cancel" || command.OperationID != "reminders.cancel" || command.Reason != "Career plan completed" || command.ExpectedVersion != 4 || command.IdempotencyKey != "reminder-cancel-key-01" {
+			t.Fatalf("command=%#v", command)
+		}
+		return ReminderResource{ID: id, Version: 5, Status: "cancelled", UpdatedAt: time.Now().UTC()}, nil
+	}}
+	request := authenticatedMissionRequest(t, http.MethodDelete, "/v1/reminder-schedules/"+id, "application/json", `{"request_id":"reminder-cancel-request-01","reason":" Career plan completed ","expected_schedule_version":4}`, "reminder-cancel-key-01", `"4"`, true)
+	recorder := httptest.NewRecorder()
+	request.handler(ReminderHandler{Service: service}).ServeHTTP(recorder, request.request)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Type") != "application/json" || recorder.Header().Get("ETag") != `"5"` {
+		t.Fatalf("status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
 	}
 }
 

@@ -29,11 +29,11 @@ func TestAdapterInventoryRequiresHTTPSAuthenticationAndTLS13(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeAdapterInventory(t, inventoryFile, adapterEnvelope{SchemaVersion: 1, Handlers: []adapterConfig{{
-		Name: "stripe.reconcile", Endpoint: "https://provider.example.test/v1/effects/lookup",
+		Name: "career_evidence.reconcile", Endpoint: "https://provider.example.test/v1/effects/lookup",
 		RootCAFile: caFile, TLSServerName: "provider.example.test", BearerTokenFile: tokenFile,
 	}}})
 	registrations, err := loadLookupRegistrations(inventoryFile, 15*time.Second, 1<<20)
-	if err != nil || len(registrations) != 1 || registrations[0].Name != "stripe.reconcile" {
+	if err != nil || len(registrations) != 1 || registrations[0].Name != "career_evidence.reconcile" {
 		t.Fatalf("registrations=%#v err=%v", registrations, err)
 	}
 	lookup, ok := registrations[0].Lookup.(toolreconciler.HTTPLookup)
@@ -46,7 +46,7 @@ func TestAdapterInventoryRequiresHTTPSAuthenticationAndTLS13(t *testing.T) {
 	}
 
 	writeAdapterInventory(t, inventoryFile, adapterEnvelope{SchemaVersion: 1, Handlers: []adapterConfig{{
-		Name: "stripe.reconcile", Endpoint: "http://127.0.0.1:8080/lookup", RootCAFile: caFile,
+		Name: "career_evidence.reconcile", Endpoint: "http://127.0.0.1:8080/lookup", RootCAFile: caFile,
 		TLSServerName: "provider.example.test", BearerTokenFile: tokenFile,
 	}}})
 	if _, err = loadLookupRegistrations(inventoryFile, 15*time.Second, 1<<20); err == nil {

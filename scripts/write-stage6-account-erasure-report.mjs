@@ -28,6 +28,9 @@ const testName = "TestAccountErasureHundredSubjectsAndRestoreEpoch";
 const passed = records.find((record) => record.Action === "pass" && record.Test === testName);
 if (!passed) throw new Error(`${testName} did not pass in supplied evidence`);
 const dependencyRaw = await readFile(resolve(root, dependencyEvidencePath), "utf8");
+const migrationManifestRaw = await readFile(resolve(root, "deploy/migrations/manifest.json"));
+const currentMigration = JSON.parse(migrationManifestRaw).migrations?.at(-1);
+if (!Number.isInteger(currentMigration?.version) || !currentMigration?.name) throw new Error("current migration manifest is invalid");
 const dependencyRecords = dependencyRaw.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
 if (dependencyRecords.some((record) => record.Action === "fail")) throw new Error("dependency evidence contains a failing record");
 const dependencyTests = [
@@ -71,7 +74,9 @@ const base = {
   reportVersion: "1.0.0",
   stage: 6,
   kind: "account-erasure-100",
-  status: "passed",
+  status: worktreeDirty ? "failed" : "passed",
+  executionResult: "passed",
+  evidenceClassification: worktreeDirty ? "current_dirty" : "current_clean",
   generatedAt: new Date().toISOString(),
   sourceCommit,
   worktreeDirty,
@@ -85,7 +90,8 @@ const base = {
   totalSurfaceReceiptRowsAfterRestore: 1200,
   completionEvents: 100,
   tombstones: 100,
-  database: "PostgreSQL 16 with migration 84 and FORCE RLS",
+  database: `PostgreSQL 16 with migrations through version ${currentMigration.version} and FORCE RLS; deletion receipts were introduced by migration 84`,
+  migration: { version: currentMigration.version, name: currentMigration.name, manifestSha256: sha256(migrationManifestRaw) },
   executionRole: "NOBYPASSRLS lites_erasure_worker",
   objectDeletion: "all S3 versions and delete markers are removed and re-listed before receipt",
   keyDeletion: "per-subject Vault Transit key deletion is enabled, executed, and verified absent",
@@ -95,7 +101,7 @@ const base = {
   artifacts,
 };
 const report = { ...base, reportHash: sha256(JSON.stringify(base)) };
-const target = resolve(root, "gate-reports/stage-6/account-erasure-100.json");
+const target = resolve(root, process.env.LITES_ACCOUNT_ERASURE_REPORT ?? "gate-reports/stage-6/account-erasure-100.json");
 await mkdir(dirname(target), { recursive: true });
 await writeFile(target, `${JSON.stringify(report, null, 2)}\n`);
-console.log(`passed: accounts=100 receipts=1200 restore=100 report=${report.reportHash}`);
+console.log(`account erasure execution=passed evidence=${worktreeDirty ? "failed" : "passed"} accounts=100 receipts=1200 restore=100 report=${report.reportHash}`);

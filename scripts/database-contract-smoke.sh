@@ -51,14 +51,24 @@ if [[ "${logs}" != *'"status" : "passed"'* ]]; then
   exit 1
 fi
 
+catalog_counts="$(node -e 'const catalog=require("./contracts/database/schema-catalog.json"); process.stdout.write([catalog.tables.length,catalog.tables.filter(table=>table.tenantScoped).length,catalog.tables.filter(table=>table.appendOnly).length].join(":"))')"
+IFS=: read -r expected_tables expected_forced_rls expected_append_only <<<"${catalog_counts}"
 actual_tables="$(docker exec "${container_name}" psql -U postgres -d lites_contract -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname IN ('identity','product','agent','contracts')")"
-if [[ "${actual_tables}" != "92" ]]; then
-  printf 'Expected 92 contract tables, found %s\n' "${actual_tables}"
+if [[ "${actual_tables}" != "${expected_tables}" ]]; then
+  printf 'Expected %s contract tables, found %s\n' "${expected_tables}" "${actual_tables}"
   exit 1
 fi
 
 actual_forced_rls="$(docker exec "${container_name}" psql -U postgres -d lites_contract -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname IN ('identity','product','agent','contracts') AND c.relrowsecurity AND c.relforcerowsecurity")"
 actual_append_only="$(docker exec "${container_name}" psql -U postgres -d lites_contract -Atc "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE NOT t.tgisinternal AND t.tgname LIKE '%_append_only' AND n.nspname IN ('identity','product','agent','contracts')")"
+if [[ "${actual_forced_rls}" != "${expected_forced_rls}" ]]; then
+  printf 'Expected %s forced-RLS tables, found %s\n' "${expected_forced_rls}" "${actual_forced_rls}"
+  exit 1
+fi
+if [[ "${actual_append_only}" != "${expected_append_only}" ]]; then
+  printf 'Expected %s append-only triggers, found %s\n' "${expected_append_only}" "${actual_append_only}"
+  exit 1
+fi
 postgres_version="$(docker exec "${container_name}" psql -U postgres -d lites_contract -Atc 'SHOW server_version')"
 database_image_digest="$(docker image inspect postgres:16-alpine --format '{{index .RepoDigests 0}}')"
 

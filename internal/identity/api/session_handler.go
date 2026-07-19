@@ -63,6 +63,12 @@ type RevokeSessionCommand struct {
 
 type RevokeOtherSessionsCommand struct{ AuthenticatedRequestMetadata }
 
+type SwitchTenantCommand struct {
+	AuthenticatedRequestMetadata
+	ActiveTenantID         string
+	ExpectedSessionVersion uint64
+}
+
 type ReauthenticateCommand struct {
 	AuthenticatedRequestMetadata
 	Password string
@@ -87,8 +93,43 @@ type SessionService interface {
 	Reauthenticate(context.Context, ReauthenticateCommand) (ReauthenticationResult, error)
 	Logout(context.Context, LogoutCommand) (LogoutResult, error)
 	ListSessions(context.Context, SessionsQuery) (SessionsPage, error)
+	SwitchTenant(context.Context, SwitchTenantCommand) (SessionMutationResult, error)
 	RevokeSession(context.Context, RevokeSessionCommand) (SessionMutationResult, error)
 	RevokeOtherSessions(context.Context, RevokeOtherSessionsCommand) (SessionMutationResult, error)
+}
+
+func (handler Handler) switchActiveTenant(writer http.ResponseWriter, request *http.Request) {
+	if handler.Sessions == nil {
+		handler.internalError(writer, request)
+		return
+	}
+	metadata, ok := handler.authenticatedMetadata(writer, request, true)
+	if !ok {
+		return
+	}
+	expected, ok := handler.ifMatch(writer, request)
+	if !ok {
+		return
+	}
+	var body struct {
+		RequestID              string `json:"request_id"`
+		ActiveTenantID         string `json:"active_tenant_id"`
+		ExpectedSessionVersion uint64 `json:"expected_session_version"`
+	}
+	if !handler.decode(writer, request, &body) {
+		return
+	}
+	if !validClientRequestID(body.RequestID) || !validOpaqueField(body.ActiveTenantID, 1, 200) || body.ExpectedSessionVersion == 0 || body.ExpectedSessionVersion != expected {
+		handler.validationFailed(writer, request)
+		return
+	}
+	metadata.ClientRequestID = body.RequestID
+	result, err := handler.Sessions.SwitchTenant(request.Context(), SwitchTenantCommand{AuthenticatedRequestMetadata: metadata, ActiveTenantID: body.ActiveTenantID, ExpectedSessionVersion: expected})
+	if err != nil {
+		handler.serviceError(writer, request, err)
+		return
+	}
+	handler.writeSessionMutation(writer, request, result)
 }
 
 func (handler Handler) reauthenticate(writer http.ResponseWriter, request *http.Request) {

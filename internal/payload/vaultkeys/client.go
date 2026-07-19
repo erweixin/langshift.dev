@@ -2,10 +2,12 @@ package vaultkeys
 
 import (
 	"context"
+	"crypto/subtle"
 	"io"
 	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/vault/api"
@@ -21,6 +23,9 @@ type ClientConfig struct {
 	ClientKeyFile            string
 	TLSServerName            string
 	AllowInsecureDevelopment bool
+	// AllowLocalCompose permits exactly the Docker Desktop Vault dev service
+	// for the engineering gate; all other non-loopback HTTP endpoints fail.
+	AllowLocalCompose bool
 }
 
 type ClientReader struct {
@@ -59,7 +64,7 @@ func NewClientReader(configuration ClientConfig) (*ClientReader, error) {
 		if address.Scheme != "http" && address.Scheme != "https" {
 			return nil, ErrKeyUnavailable
 		}
-		if address.Scheme == "http" && !loopback(address.Hostname()) {
+		if address.Scheme == "http" && !loopback(address.Hostname()) && !(configuration.AllowLocalCompose && address.Hostname() == "vault") {
 			return nil, ErrKeyUnavailable
 		}
 	} else if address.Scheme != "https" || (configuration.TokenFile == "" && configuration.ClientCertificateFile == "") {
@@ -118,6 +123,56 @@ func (reader *ClientReader) GetVersion(ctx context.Context, path string, version
 		return nil, ErrKeyUnavailable
 	}
 	return secret, nil
+}
+
+// PutAPIKey creates one immutable KV v2 secret. A retry with the exact same
+// value returns the existing version; a different value at the same path is
+// rejected. This makes the external secret write recoverable before the
+// database idempotency transaction commits without ever returning plaintext.
+func (reader *ClientReader) PutAPIKey(ctx context.Context, path, value string) (string, bool, error) {
+	if reader == nil || reader.Client == nil || reader.Mount == "" || path == "" || len(value) < 8 || len(value) > 16<<10 || strings.ContainsAny(value, "\x00\r\n") {
+		return "", false, ErrKeyUnavailable
+	}
+	if reader.TokenFile != "" {
+		if err := reader.reloadToken(); err != nil {
+			return "", false, err
+		}
+	}
+	secret, err := reader.Client.KVv2(reader.Mount).Put(ctx, path, map[string]any{"api_key": value}, api.WithCheckAndSet(0))
+	if err == nil && secret != nil && secret.VersionMetadata != nil && secret.VersionMetadata.Version > 0 {
+		return strconv.Itoa(secret.VersionMetadata.Version), true, nil
+	}
+	existing, readErr := reader.Client.KVv2(reader.Mount).Get(ctx, path)
+	if readErr != nil || existing == nil || existing.VersionMetadata == nil || existing.VersionMetadata.Destroyed || !existing.VersionMetadata.DeletionTime.IsZero() {
+		return "", false, ErrKeyUnavailable
+	}
+	stored, ok := existing.Data["api_key"].(string)
+	if !ok || len(stored) != len(value) || subtle.ConstantTimeCompare([]byte(stored), []byte(value)) != 1 {
+		return "", false, ErrKeyUnavailable
+	}
+	return strconv.Itoa(existing.VersionMetadata.Version), false, nil
+}
+
+// DestroySecretVersion irreversibly removes the exact version referenced by a
+// revoked BYOK credential. Database authorization is fail-closed independently
+// of Vault, but successful deletion also eliminates the residual secret.
+func (reader *ClientReader) DestroySecretVersion(ctx context.Context, path string, version int) error {
+	if reader == nil || reader.Client == nil || reader.Mount == "" || path == "" || version < 1 {
+		return ErrKeyUnavailable
+	}
+	if reader.TokenFile != "" {
+		if err := reader.reloadToken(); err != nil {
+			return err
+		}
+	}
+	if err := reader.Client.KVv2(reader.Mount).Destroy(ctx, path, []int{version}); err != nil {
+		return ErrKeyUnavailable
+	}
+	secret, err := reader.Client.KVv2(reader.Mount).GetVersion(ctx, path, version)
+	if err == nil && secret != nil && secret.VersionMetadata != nil && !secret.VersionMetadata.Destroyed {
+		return ErrKeyUnavailable
+	}
+	return nil
 }
 
 func (reader *ClientReader) reloadToken() error {

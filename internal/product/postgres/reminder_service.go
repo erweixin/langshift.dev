@@ -169,7 +169,11 @@ func (service ReminderService) executeCreate(ctx context.Context, command produc
 }
 
 func (service ReminderService) Update(ctx context.Context, command productapi.UpdateReminderCommand) (productapi.ReminderResource, error) {
-	if !service.valid() || !validMissionMetadata(command.CommandMetadata) || command.ReminderID == "" || command.ExpectedVersion < 1 || !slices.Contains([]string{"replace", "pause", "resume", "cancel"}, command.Action) {
+	operationID := command.OperationID
+	if operationID == "" {
+		operationID = reminderUpdateOperation
+	}
+	if !service.valid() || !validMissionMetadata(command.CommandMetadata) || command.ReminderID == "" || command.ExpectedVersion < 1 || !slices.Contains([]string{"replace", "pause", "resume", "cancel"}, command.Action) || operationID != reminderUpdateOperation && operationID != "reminders.cancel" || operationID == "reminders.cancel" && (command.Action != "cancel" || command.Reason == "") || operationID == reminderUpdateOperation && command.Reason != "" {
 		return productapi.ReminderResource{}, productapi.ErrValidation
 	}
 	var replacement productreminder.Schedule
@@ -185,23 +189,24 @@ func (service ReminderService) Update(ctx context.Context, command productapi.Up
 		RequestID  string                   `json:"request_id"`
 		ReminderID string                   `json:"reminder_id"`
 		Action     string                   `json:"action"`
+		Reason     string                   `json:"reason,omitempty"`
 		Schedule   productreminder.Schedule `json:"schedule,omitempty"`
 		Expected   uint64                   `json:"expected_version"`
-	}{command.ClientRequestID, command.ReminderID, command.Action, replacement, command.ExpectedVersion})
-	return service.executeUpdate(ctx, command, replacement, canonical)
+	}{command.ClientRequestID, command.ReminderID, command.Action, command.Reason, replacement, command.ExpectedVersion})
+	return service.executeUpdate(ctx, command, operationID, replacement, canonical)
 }
 
-func (service ReminderService) executeUpdate(ctx context.Context, command productapi.UpdateReminderCommand, replacement productreminder.Schedule, canonical []byte) (productapi.ReminderResource, error) {
+func (service ReminderService) executeUpdate(ctx context.Context, command productapi.UpdateReminderCommand, operationID string, replacement productreminder.Schedule, canonical []byte) (productapi.ReminderResource, error) {
 	requestHash, err := idempotency.RequestDigest(canonical, service.RequestDigestPepper)
 	if err != nil {
 		return productapi.ReminderResource{}, productapi.ErrDependencyUnavailable
 	}
-	recordID, err := ids.DeterministicUUID(service.IDKey, "product-idempotency:"+reminderUpdateOperation, command.TenantID+"\x00"+command.UserID+"\x00"+command.IdempotencyKey)
+	recordID, err := ids.DeterministicUUID(service.IDKey, "product-idempotency:"+operationID, command.TenantID+"\x00"+command.UserID+"\x00"+command.IdempotencyKey)
 	if err != nil {
 		return productapi.ReminderResource{}, productapi.ErrDependencyUnavailable
 	}
 	descriptor := payload.Descriptor{TenantID: command.TenantID, ObjectID: recordID, Class: reminderResponseClass, ContentType: "application/json"}
-	input := idempotencypostgres.Input{RecordID: recordID, Scope: idempotency.Scope{TenantID: command.TenantID, UserID: command.UserID, OperationID: reminderUpdateOperation}, RawKey: command.IdempotencyKey, RequestHash: requestHash, RequestID: command.RequestID}
+	input := idempotencypostgres.Input{RecordID: recordID, Scope: idempotency.Scope{TenantID: command.TenantID, UserID: command.UserID, OperationID: operationID}, RawKey: command.IdempotencyKey, RequestHash: requestHash, RequestID: command.RequestID}
 	executor := idempotencypostgres.Executor{Pool: service.Pool, KeyPepper: service.IdempotencyKeyPepper, TTL: service.IdempotencyTTL, Now: service.Now}
 	if response, found, loadErr := executor.LoadCompleted(ctx, input); loadErr != nil {
 		return productapi.ReminderResource{}, service.mapError(loadErr)
@@ -236,7 +241,7 @@ func (service ReminderService) executeUpdate(ctx context.Context, command produc
 			return idempotency.Response{}, ErrRouteConflict
 		}
 		eventID, _ := ids.DeterministicUUID(service.IDKey, "reminder-updated-event", recordID)
-		eventPayload, putErr := service.putJSON(ctx, payload.Descriptor{TenantID: command.TenantID, ObjectID: eventID, Class: "event-payload", ContentType: "application/json"}, map[string]any{"subject_id": current.ID, "subject_version": nextState.Version, "action": command.Action, "previous_status": current.Status, "status": nextState.Status, "schedule": document, "next_occurrence_at": nextState.NextOccurrenceAt})
+		eventPayload, putErr := service.putJSON(ctx, payload.Descriptor{TenantID: command.TenantID, ObjectID: eventID, Class: "event-payload", ContentType: "application/json"}, map[string]any{"subject_id": current.ID, "subject_version": nextState.Version, "action": command.Action, "reason": command.Reason, "previous_status": current.Status, "status": nextState.Status, "schedule": document, "next_occurrence_at": nextState.NextOccurrenceAt})
 		if putErr != nil {
 			return idempotency.Response{}, putErr
 		}

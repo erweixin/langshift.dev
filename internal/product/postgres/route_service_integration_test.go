@@ -47,10 +47,12 @@ func TestRouteServiceFreezesInputsAndCommitsReplaySafeGenerateAndAccept(t *testi
 		{`INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Route Service Tenant','active','US',$2)`, []any{tenantID, userID}},
 		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'route-service-role',1,'active','{}','en','{}')`, []any{roleID, tenantID}},
 		{`INSERT INTO product.capabilities(id,tenant_id,slug,revision,status,spec,evidence_guidance) VALUES($1,$2,'route-service-capability',1,'active','{}','{}')`, []any{capabilityID, tenantID}},
+		{`INSERT INTO product.role_capability_requirements(id,tenant_id,role_profile_id,capability_id,requirement_level,rationale,revision) VALUES('a7000000-0000-4000-8000-000000000011',$1,$2,$3,'demonstrated','Pinned test requirement',1)`, []any{tenantID, roleID, capabilityID}},
 		{`INSERT INTO product.missions(id,tenant_id,user_id,status,target_role_profile_id,route_version,claim_set_hash) VALUES($1,$2,$3,'active',$4,0,$5)`, []any{missionID, tenantID, userID, roleID, claimHash}},
 		{`INSERT INTO product.mission_focuses(tenant_id,user_id,mission_id,focus_version) VALUES($1,$2,$3,1)`, []any{tenantID, userID, missionID}},
 		{`INSERT INTO product.capability_claims(id,tenant_id,user_id,claim_identity_id,claim_revision,mission_id,capability_id,status,origin,verification_level,statement_ref,recorded_at) VALUES($1,$2,$3,$1,1,$4,$5,'active','user_asserted','user_confirmed','encrypted://claim',$6)`, []any{claimID, tenantID, userID, missionID, capabilityID, now}},
 		{`INSERT INTO product.evidence(id,tenant_id,user_id,mission_id,evidence_type,status,source_kind,payload_ref,content_hash,recorded_at) VALUES($1,$2,$3,$4,'assessment','verified','user','encrypted://evidence',$5,$6)`, []any{evidenceID, tenantID, userID, missionID, strings.Repeat("e", 64), now}},
+		{`INSERT INTO product.claim_evidence_links(id,tenant_id,claim_id,evidence_id,relation,recorded_at) VALUES('a7000000-0000-4000-8000-000000000012',$1,$2,$3,'supports',$4)`, []any{tenantID, claimID, evidenceID, now}},
 	}
 	for _, statement := range setup {
 		if _, err := admin.Exec(ctx, statement.query, statement.args...); err != nil {
@@ -85,7 +87,7 @@ func TestRouteServiceFreezesInputsAndCommitsReplaySafeGenerateAndAccept(t *testi
 		t.Fatal(err)
 	}
 	var frozen routeInputManifest
-	if err = json.Unmarshal(inputManifest, &frozen); err != nil || frozen.SchemaVersion != 2 || len(frozen.ClaimRevisions) != 1 || len(frozen.EvidenceRevisions) != 1 || frozen.AgentProfileSnapshotID != binding.SnapshotID || frozen.AgentProfile.SnapshotID != binding.SnapshotID || frozen.AgentProfile.ChannelID != binding.ChannelID || frozen.AgentProfile.Sequence != binding.Sequence || frozen.AgentProfile.Profile != string(behavior.RoutePlanner) || frozen.AgentProfile.Environment != "production" || frozen.Mission.ClaimSetHash != claimHash {
+	if err = json.Unmarshal(inputManifest, &frozen); err != nil || frozen.SchemaVersion != 4 || len(frozen.ClaimRevisions) != 1 || len(frozen.ClaimRevisions[0].EvidenceIDs) != 1 || frozen.ClaimRevisions[0].EvidenceIDs[0] != evidenceID || len(frozen.EvidenceRevisions) != 1 || len(frozen.TargetRequirements) != 1 || frozen.TargetRequirements[0].CapabilityID != capabilityID || frozen.AgentProfileSnapshotID != binding.SnapshotID || frozen.AgentProfile.SnapshotID != binding.SnapshotID || frozen.AgentProfile.ChannelID != binding.ChannelID || frozen.AgentProfile.Sequence != binding.Sequence || frozen.AgentProfile.Profile != string(behavior.RoutePlanner) || frozen.AgentProfile.Environment != "production" || frozen.Mission.ClaimSetHash != claimHash {
 		t.Fatalf("frozen=%#v err=%v", frozen, err)
 	}
 	routeBody := json.RawMessage(`{"schema_version":1,"stages":[{"id":"foundation"}]}`)

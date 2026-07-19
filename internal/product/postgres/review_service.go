@@ -267,7 +267,7 @@ func (service ReviewService) prepare(ctx context.Context, command productapi.Gen
 }
 
 func (service ReviewService) identifiers(seed string) (reviewIDs, error) {
-	domains := []string{"review-generation", "review-conversation", "review-message", "review-run", "review-start-command"}
+	domains := []string{"review-generation", "review-conversation", "review-message", "review-run"}
 	values := make([]string, len(domains))
 	for i, d := range domains {
 		v, e := ids.DeterministicUUID(service.IDKey, d, seed)
@@ -276,7 +276,11 @@ func (service ReviewService) identifiers(seed string) (reviewIDs, error) {
 		}
 		values[i] = v
 	}
-	return reviewIDs{values[0], values[1], values[2], values[3], values[4]}, nil
+	startCommand, err := executionpostgres.RunStartCommandID(service.Runs.IDKey, values[3])
+	if err != nil {
+		return reviewIDs{}, err
+	}
+	return reviewIDs{values[0], values[1], values[2], values[3], startCommand}, nil
 }
 func (service ReviewService) putJSON(ctx context.Context, d payload.Descriptor, v any) (payload.Manifest, error) {
 	b, e := json.Marshal(v)

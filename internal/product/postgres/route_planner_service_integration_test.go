@@ -32,6 +32,7 @@ func TestRoutePlannerDispatcherQueuesOnePinnedRunForDraftMission(t *testing.T) {
 	userID := "a8000000-0000-4000-8000-000000000001"
 	tenantID := "a8000000-0000-4000-8000-000000000002"
 	roleID := "a8000000-0000-4000-8000-000000000003"
+	capabilityID := "a8000000-0000-4000-8000-000000000004"
 	epoch := "a8000000-0000-4000-8000-000000000005"
 	_, _ = admin.Exec(ctx, `DELETE FROM identity.tenants WHERE id=$1`, tenantID)
 	_, _ = admin.Exec(ctx, `DELETE FROM identity.users WHERE id=$1`, userID)
@@ -42,6 +43,8 @@ func TestRoutePlannerDispatcherQueuesOnePinnedRunForDraftMission(t *testing.T) {
 		{`INSERT INTO identity.users(id,normalized_email,locale,status) VALUES($1,'route-planner-owner-a8@example.invalid','en','active')`, []any{userID}},
 		{`INSERT INTO identity.tenants(id,kind,name,status,region,owner_user_id) VALUES($1,'personal','Route Planner Tenant','active','US',$2)`, []any{tenantID, userID}},
 		{`INSERT INTO product.role_profiles(id,tenant_id,slug,revision,status,spec,locale,source_manifest) VALUES($1,$2,'route-planner-role',1,'active','{}','en','{}')`, []any{roleID, tenantID}},
+		{`INSERT INTO product.capabilities(id,tenant_id,slug,revision,status,spec,evidence_guidance) VALUES($1,$2,'route-planner-capability',1,'active','{}','{}')`, []any{capabilityID, tenantID}},
+		{`INSERT INTO product.role_capability_requirements(id,tenant_id,role_profile_id,capability_id,requirement_level,rationale,revision) VALUES('a8000000-0000-4000-8000-000000000040',$1,$2,$3,'demonstrated','Pinned integration requirement',1)`, []any{tenantID, roleID, capabilityID}},
 	}
 	for _, statement := range setup {
 		if _, err := admin.Exec(ctx, statement.query, statement.args...); err != nil {
@@ -146,7 +149,7 @@ func TestRoutePlannerDispatcherQueuesOnePinnedRunForDraftMission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	routeJSON := []byte(`{"schema_version":1,"summary":"A grounded transition.","transferable_experience":[],"gaps":[{"statement":"Practice production delivery.","capability_ids":["capability-1"],"evidence_ids":[],"confidence":"inferred"}],"bridge":[{"id":"bridge_1","title":"Ship safely","rationale":"Turns existing analysis into delivery evidence.","from_capability_ids":[],"to_capability_ids":["capability-1"]}],"stages":[{"id":"stage_1","title":"Foundation","outcome":"A reviewed plan.","capability_ids":["capability-1"],"evidence_required":["reviewed plan"]},{"id":"stage_2","title":"Delivery","outcome":"A deployed artifact.","capability_ids":["capability-1"],"evidence_required":["deployment record"]}],"first_task":{"title":"Draft the plan","objective":"Produce a reviewable delivery plan.","estimated_minutes":45,"difficulty":"standard","capability_ids":["capability-1"],"success_criteria":["Plan is reviewed"]}}`)
+	routeJSON := bytes.ReplaceAll([]byte(`{"schema_version":1,"summary":"A grounded transition.","transferable_experience":[],"gaps":[{"statement":"Practice production delivery.","capability_ids":["capability-1"],"evidence_ids":[],"confidence":"inferred"}],"bridge":[{"id":"bridge_1","title":"Ship safely","rationale":"Turns existing analysis into delivery evidence.","from_capability_ids":[],"to_capability_ids":["capability-1"]}],"stages":[{"id":"stage_1","title":"Foundation","outcome":"A reviewed plan.","capability_ids":["capability-1"],"evidence_required":["reviewed plan"]},{"id":"stage_2","title":"Delivery","outcome":"A deployed artifact.","capability_ids":["capability-1"],"evidence_required":["deployment record"]}],"first_task":{"title":"Draft the plan","objective":"Produce a reviewable delivery plan.","estimated_minutes":45,"difficulty":"standard","capability_ids":["capability-1"],"success_criteria":["Plan is reviewed"]}}`), []byte("capability-1"), []byte(capabilityID))
 	messageJSON, err := json.Marshal(map[string]any{"schema_version": 1, "role": "assistant", "content": []map[string]any{{"type": "text", "text": string(routeJSON)}}})
 	if err != nil {
 		t.Fatal(err)

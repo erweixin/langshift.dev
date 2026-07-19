@@ -35,6 +35,7 @@ func TestSessionLifecycleIsPaginatedOwnedCASIdempotentAndEvented(t *testing.T) {
 	const publicTenantID = "20000000-0000-0000-0000-000000000701"
 	const userID = "10000000-0000-0000-0000-000000000701"
 	const tenantID = "20000000-0000-0000-0000-000000000702"
+	const targetTenantID = "20000000-0000-0000-0000-000000000704"
 	const otherUserID = "10000000-0000-0000-0000-000000000702"
 	const otherTenantID = "20000000-0000-0000-0000-000000000703"
 	if _, err = admin.Exec(ctx, `INSERT INTO identity.users (id,normalized_email,email_verified_at,locale,status) VALUES ($1,'sessions-one@example.com',$3,'en','active'),($2,'sessions-two@example.com',$3,'en','active')`, userID, otherUserID, now); err != nil {
@@ -43,10 +44,10 @@ func TestSessionLifecycleIsPaginatedOwnedCASIdempotentAndEvented(t *testing.T) {
 	if _, err = admin.Exec(ctx, `INSERT INTO identity.tenants (id,kind,name,status,region) VALUES ($1,'anonymous_system','Session Public','active','US')`, publicTenantID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = admin.Exec(ctx, `INSERT INTO identity.tenants (id,kind,name,status,region,owner_user_id) VALUES ($1,'personal','Session One','active','US',$2),($3,'personal','Session Two','active','US',$4)`, tenantID, userID, otherTenantID, otherUserID); err != nil {
+	if _, err = admin.Exec(ctx, `INSERT INTO identity.tenants (id,kind,name,status,region,owner_user_id) VALUES ($1,'personal','Session One','active','US',$2),($3,'personal','Session Two','active','US',$4),($5,'enterprise','Target Enterprise','active','US',NULL)`, tenantID, userID, otherTenantID, otherUserID, targetTenantID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = admin.Exec(ctx, `INSERT INTO identity.memberships (id,tenant_id,user_id,role,status,joined_at) VALUES ('30000000-0000-0000-0000-000000000701',$1,$2,'owner','active',$5),('30000000-0000-0000-0000-000000000702',$3,$4,'owner','active',$5)`, tenantID, userID, otherTenantID, otherUserID, now); err != nil {
+	if _, err = admin.Exec(ctx, `INSERT INTO identity.memberships (id,tenant_id,user_id,role,status,joined_at) VALUES ('30000000-0000-0000-0000-000000000701',$1,$2,'owner','active',$5),('30000000-0000-0000-0000-000000000702',$3,$4,'owner','active',$5),('30000000-0000-0000-0000-000000000704',$6,$2,'member','active',$5)`, tenantID, userID, otherTenantID, otherUserID, now, targetTenantID); err != nil {
 		t.Fatal(err)
 	}
 	hasher := password.Hasher{Parameters: password.Parameters{Version: password.CurrentVersion, Time: 1, MemoryKiB: 8 * 1024, Threads: 1, KeyLength: 32}, Pepper: bytes.Repeat([]byte{0x51}, 32)}
@@ -116,6 +117,24 @@ func TestSessionLifecycleIsPaginatedOwnedCASIdempotentAndEvented(t *testing.T) {
 	if _, err = service.ListSessions(ctx, api.SessionsQuery{AuthenticatedRequestMetadata: otherMetadata, Limit: 2, Cursor: *firstPage.NextCursor}); !errors.Is(err, api.ErrValidation) {
 		t.Fatalf("cross-principal cursor error=%v", err)
 	}
+	switchTenant := api.SwitchTenantCommand{AuthenticatedRequestMetadata: metadata, ActiveTenantID: targetTenantID, ExpectedSessionVersion: 1}
+	switchTenant.IdempotencyKey, switchTenant.RequestID, switchTenant.ClientRequestID = "session-switch-key-0001", "server-switch-tenant", "client-switch-tenant"
+	switchResults := concurrentCalls(t, 12, func() (api.SessionMutationResult, error) { return service.SwitchTenant(ctx, switchTenant) })
+	for _, result := range switchResults {
+		if result.ID != userSessions[0].SessionID || result.Version != 2 || result.Status != "active_tenant_changed" {
+			t.Fatalf("switch result=%#v", result)
+		}
+	}
+	resolved, err := (SessionResolver{Pool: pool, Pepper: service.SessionPepper, Now: service.Now}).Resolve(ctx, userSessions[0].SessionToken)
+	if err != nil || resolved.TenantID != targetTenantID || resolved.MembershipID != "30000000-0000-0000-0000-000000000704" || len(resolved.Roles) != 1 || resolved.Roles[0] != "member" {
+		t.Fatalf("switched principal=%#v err=%v", resolved, err)
+	}
+	metadata.TenantID, metadata.MembershipID = targetTenantID, "30000000-0000-0000-0000-000000000704"
+	unauthorizedSwitch := api.SwitchTenantCommand{AuthenticatedRequestMetadata: metadata, ActiveTenantID: otherTenantID, ExpectedSessionVersion: 2}
+	unauthorizedSwitch.IdempotencyKey, unauthorizedSwitch.RequestID, unauthorizedSwitch.ClientRequestID = "session-switch-denied", "server-switch-denied", "client-switch-denied"
+	if _, err = service.SwitchTenant(ctx, unauthorizedSwitch); !errors.Is(err, api.ErrPermissionDenied) {
+		t.Fatalf("unauthorized switch error=%v", err)
+	}
 	revoke := api.RevokeSessionCommand{AuthenticatedRequestMetadata: metadata, TargetSessionID: userSessions[1].SessionID, ExpectedVersion: 1, ReasonCode: "user_revoked"}
 	revoke.IdempotencyKey, revoke.RequestID, revoke.ClientRequestID = "session-revoke-key-0001", "server-revoke-one", "client-revoke-one"
 	revocations := concurrentCalls(t, 12, func() (api.SessionMutationResult, error) { return service.RevokeSession(ctx, revoke) })
@@ -133,7 +152,7 @@ func TestSessionLifecycleIsPaginatedOwnedCASIdempotentAndEvented(t *testing.T) {
 	others.IdempotencyKey, others.RequestID, others.ClientRequestID = "session-others-key-0001", "server-revoke-others", "client-revoke-others"
 	otherResults := concurrentCalls(t, 12, func() (api.SessionMutationResult, error) { return service.RevokeOtherSessions(ctx, others) })
 	for _, result := range otherResults {
-		if result.ID != userSessions[0].SessionID || result.Version != 1 || result.Status != "active" {
+		if result.ID != userSessions[0].SessionID || result.Version != 2 || result.Status != "active" {
 			t.Fatalf("revoke others result=%#v", result)
 		}
 	}
@@ -147,11 +166,14 @@ func TestSessionLifecycleIsPaginatedOwnedCASIdempotentAndEvented(t *testing.T) {
 	if err != nil || replay != logoutResult {
 		t.Fatalf("logout replay=%#v err=%v", replay, err)
 	}
-	var revoked, revokeEvents, audits, otherRevoked int
+	var revoked, revokeEvents, switchEvents, audits, otherRevoked int
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM identity.sessions WHERE user_id=$1 AND revoked_at IS NOT NULL`, userID).Scan(&revoked); err != nil {
 		t.Fatal(err)
 	}
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.events WHERE user_id=$1 AND event_type='SessionRevoked'`, userID).Scan(&revokeEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM agent.events WHERE user_id=$1 AND event_type='SessionActiveTenantChanged'`, userID).Scan(&switchEvents); err != nil {
 		t.Fatal(err)
 	}
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM identity.security_events WHERE subject_user_id=$1 AND event_type='sessions_revoked'`, userID).Scan(&audits); err != nil {
@@ -160,7 +182,7 @@ func TestSessionLifecycleIsPaginatedOwnedCASIdempotentAndEvented(t *testing.T) {
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM identity.sessions WHERE id=$1 AND revoked_at IS NOT NULL`, otherSession.SessionID).Scan(&otherRevoked); err != nil {
 		t.Fatal(err)
 	}
-	if revoked != 4 || revokeEvents != 4 || audits != 3 || otherRevoked != 0 {
-		t.Fatalf("revoked=%d events=%d audits=%d other-revoked=%d", revoked, revokeEvents, audits, otherRevoked)
+	if revoked != 4 || revokeEvents != 4 || switchEvents != 1 || audits != 3 || otherRevoked != 0 {
+		t.Fatalf("revoked=%d events=%d switch-events=%d audits=%d other-revoked=%d", revoked, revokeEvents, switchEvents, audits, otherRevoked)
 	}
 }

@@ -22,12 +22,12 @@ type ReserveCommand struct {
 }
 
 type Reservation struct {
-	ReservationID, BucketID, OperationKey, Status  string
-	ProviderAttemptID, TerminalEventID, ReasonCode string
-	ReservedUnits, ActualUnits, ReleasedUnits      uint64
-	Version                                        uint64
-	ExpiresAt, UpdatedAt                           time.Time
-	Replayed                                       bool
+	ReservationID, BucketID, OperationKey, Status                 string
+	ProviderAttemptID, TerminalEventID, LedgerEntryID, ReasonCode string
+	ReservedUnits, ActualUnits, ReleasedUnits                     uint64
+	Version                                                       uint64
+	ExpiresAt, UpdatedAt                                          time.Time
+	Replayed                                                      bool
 }
 
 func (store Store) Reserve(ctx context.Context, command ReserveCommand) (Reservation, error) {

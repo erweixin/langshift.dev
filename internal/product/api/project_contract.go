@@ -25,6 +25,69 @@ type ProjectListResult struct {
 	NextCursor *string           `json:"next_cursor"`
 }
 
+type ProjectGetQuery struct{ TenantID, UserID, ProjectID string }
+
+type ProjectEvaluationResource struct {
+	GenerationID  string    `json:"generation_id"`
+	RunID         string    `json:"run_id"`
+	Status        string    `json:"status"`
+	FailureReason *string   `json:"failure_reason"`
+	EvidenceID    *string   `json:"evidence_id"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type ProjectMilestoneResource struct {
+	ID                    string                     `json:"id"`
+	Version               uint64                     `json:"version"`
+	Sequence              int                        `json:"sequence"`
+	Required              bool                       `json:"required"`
+	Status                string                     `json:"status"`
+	Title                 string                     `json:"title"`
+	Result                *string                    `json:"result"`
+	VerificationTestRunID *string                    `json:"verification_test_run_id"`
+	EvidenceIDs           []string                   `json:"evidence_ids"`
+	LatestEvaluation      *ProjectEvaluationResource `json:"latest_evaluation"`
+	CompletedAt           *time.Time                 `json:"completed_at"`
+	UpdatedAt             time.Time                  `json:"updated_at"`
+}
+
+type ProjectArtifactResource struct {
+	ID                  string    `json:"id"`
+	Version             uint64    `json:"version"`
+	Status              string    `json:"status"`
+	ArtifactKind        string    `json:"artifact_kind"`
+	Title               string    `json:"title"`
+	CurrentRevision     int       `json:"current_revision"`
+	CurrentRevisionID   *string   `json:"current_revision_id"`
+	ArtifactRevisionIDs []string  `json:"artifact_revision_ids"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+type ProjectExportResource struct {
+	ID          string     `json:"id"`
+	Status      string     `json:"status"`
+	Version     uint64     `json:"version"`
+	ContentHash *string    `json:"content_hash"`
+	MediaType   *string    `json:"media_type"`
+	ByteSize    *int64     `json:"byte_size"`
+	FailureCode *string    `json:"failure_code"`
+	CreatedAt   time.Time  `json:"created_at"`
+	CompletedAt *time.Time `json:"completed_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+}
+
+// ProjectDetailResource is the owner-scoped recovery snapshot for the Create
+// workspace. It contains only durable state; a browser never has to infer
+// successful writes from React state after a refresh or a new session.
+type ProjectDetailResource struct {
+	Project      ProjectResource            `json:"project"`
+	Brief        string                     `json:"brief"`
+	Workspace    *WorkspaceResource         `json:"workspace"`
+	Milestones   []ProjectMilestoneResource `json:"milestones"`
+	Artifacts    []ProjectArtifactResource  `json:"artifacts"`
+	LatestExport *ProjectExportResource     `json:"latest_export"`
+}
+
 type ProjectMutationResult struct {
 	ID                     string    `json:"id"`
 	Version                uint64    `json:"version"`
@@ -130,6 +193,7 @@ type ProjectTestService interface {
 
 type ProjectService interface {
 	List(context.Context, ProjectListQuery) (ProjectListResult, error)
+	Get(context.Context, ProjectGetQuery) (ProjectDetailResource, error)
 	Create(context.Context, CreateProjectCommand) (ProjectMutationResult, error)
 	ChangeStatus(context.Context, ChangeProjectStatusCommand) (ProjectMutationResult, error)
 	CreateMilestone(context.Context, CreateMilestoneCommand) (MilestoneMutationResult, error)

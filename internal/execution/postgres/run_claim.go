@@ -168,7 +168,10 @@ func (store RunStore) ClaimStart(ctx context.Context, command ClaimRunCommand) (
 		return RunClaim{}, ErrRunNotClaimable
 	}
 	var jobID, queueClass string
-	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND available_at<=$1 AND (due_at IS NULL OR due_at>$1) RETURNING id::text,queue_class`, now, command.Command.TenantID, command.Command.CommandID).Scan(&jobID, &queueClass)
+	// A fenced scheduler delivery has already proved that the job was ready.
+	// MarkDispatched moves available_at to the redelivery deadline, so reusing
+	// it as a consumer-side readiness check creates an ACK-before-consume race.
+	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND ($4 OR available_at<=$1) AND (due_at IS NULL OR due_at>$1) RETURNING id::text,queue_class`, now, command.Command.TenantID, command.Command.CommandID, store.RequireDispatchFence).Scan(&jobID, &queueClass)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RunClaim{}, ErrRunNotClaimable
 	}

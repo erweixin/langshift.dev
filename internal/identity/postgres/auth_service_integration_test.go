@@ -172,6 +172,45 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 		}
 	}
 
+	originalVerificationToken := mail.Token
+	resend := api.ResendVerificationCommand{RequestMetadata: api.RequestMetadata{RequestID: "server-resend-001", ClientRequestID: "client-resend-001", IdempotencyKey: "resend-idempotency-001", ClientIPHash: metadata.ClientIPHash, UserAgentHash: metadata.UserAgentHash}, NormalizedEmail: register.NormalizedEmail}
+	resendResults := concurrentCalls(t, 8, func() (api.ResendVerificationResult, error) { return service.ResendVerification(ctx, resend) })
+	for _, result := range resendResults {
+		if result.Status != "accepted" || result.NextAllowedAt != now.Add(verificationResendCooldown) {
+			t.Fatalf("resend result=%#v", result)
+		}
+	}
+	var resentCommandID, resentRef, resentHash string
+	if err = admin.QueryRow(ctx, `SELECT command_id::text,payload_ref,payload_hash FROM agent.outbox WHERE tenant_id=$1 AND command_type='identity.email.verify' AND command_id<>$2 ORDER BY created_at DESC,id DESC LIMIT 1`, tenantID, verificationCommandID).Scan(&resentCommandID, &resentRef, &resentHash); err != nil {
+		t.Fatal(err)
+	}
+	resentPayload, err := payloadStore.Get(ctx, payload.Descriptor{TenantID: tenantID, ObjectID: resentCommandID, Class: "mail-command", ContentType: "application/json"}, payload.Manifest{Ref: resentRef, Hash: resentHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resentMail struct {
+		Recipient string `json:"recipient"`
+		Token     string `json:"token"`
+	}
+	if err = json.Unmarshal(resentPayload, &resentMail); err != nil || resentMail.Recipient != register.NormalizedEmail || len(resentMail.Token) < 32 || resentMail.Token == originalVerificationToken {
+		t.Fatalf("resent mail=%#v err=%v", resentMail, err)
+	}
+	var totalVerifications, liveVerifications int
+	if err = admin.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE used_at IS NULL AND revoked_at IS NULL) FROM identity.email_verifications WHERE user_id=$1`, userID).Scan(&totalVerifications, &liveVerifications); err != nil || totalVerifications != 2 || liveVerifications != 1 {
+		t.Fatalf("verification rows total=%d live=%d err=%v", totalVerifications, liveVerifications, err)
+	}
+	oldVerify := api.VerifyEmailCommand{RequestMetadata: api.RequestMetadata{RequestID: "server-old-verify", ClientRequestID: "client-old-verify", IdempotencyKey: "old-verify-key-00001", ClientIPHash: metadata.ClientIPHash, UserAgentHash: metadata.UserAgentHash}, Token: originalVerificationToken}
+	if _, err = service.VerifyEmail(ctx, oldVerify); !errors.Is(err, api.ErrInvalidCredentials) {
+		t.Fatalf("revoked verification token error=%v", err)
+	}
+	mail.Token = resentMail.Token
+	missingResend := resend
+	missingResend.RequestID, missingResend.ClientRequestID, missingResend.IdempotencyKey, missingResend.NormalizedEmail = "server-resend-missing", "client-resend-missing", "resend-missing-key-01", "missing-resend@example.com"
+	missingResult, err := service.ResendVerification(ctx, missingResend)
+	if err != nil || missingResult.Status != "accepted" || missingResult.NextAllowedAt != now.Add(verificationResendCooldown) {
+		t.Fatalf("missing resend result=%#v err=%v", missingResult, err)
+	}
+
 	verifyMetadata := metadata
 	verifyMetadata.RequestID = "server-verify-001"
 	verifyMetadata.ClientRequestID = "client-verify-001"
@@ -262,7 +301,7 @@ func TestAuthRegistrationVerificationAndLoginAreDurableIdempotentAndSecretSafe(t
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM identity.security_events WHERE event_type='login_failed' AND tenant_id=$1`, authPublicTenantID).Scan(&loginFailures); err != nil {
 		t.Fatal(err)
 	}
-	if users != 1 || sessions != 1 || events != 5 || outbox != 6 || idempotencyRows != 3 || loginFailures != 2 {
+	if users != 1 || sessions != 1 || events != 6 || outbox != 8 || idempotencyRows != 3 || loginFailures != 2 {
 		t.Fatalf("users=%d sessions=%d events=%d outbox=%d idempotency=%d login-failures=%d", users, sessions, events, outbox, idempotencyRows, loginFailures)
 	}
 	var passwordHash, verificationHashBytes, sessionHash []byte

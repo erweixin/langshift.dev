@@ -50,6 +50,7 @@ func main() {
 func run(parent context.Context, configuration config, logger *slog.Logger) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	localCompose := configuration.environment == "engineering-test" && os.Getenv("LITES_LOCAL_COMPOSE") == "true"
 	secrets, err := loadSecretBundle(configuration.secretBundleFile)
 	if err != nil {
 		return err
@@ -94,15 +95,19 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 		return errors.New("connect database")
 	}
 	defer pool.Close()
-	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	s3Client, err := s3store.NewClient(ctx, s3store.ClientConfig{Region: configuration.s3Region, Endpoint: configuration.s3Endpoint, UsePathStyle: configuration.s3PathStyle, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure object store")
 	}
 	blobs := s3store.Store{Client: s3Client, Bucket: configuration.payloadBucket, Prefix: configuration.payloadPrefix, MaxBytes: 4 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
 	artifactObjects := s3store.Store{Client: s3Client, Bucket: configuration.artifactBucket, Prefix: configuration.artifactPrefix, MaxBytes: 64 << 20, ServerSideEncryption: configuration.s3Encryption, KMSKeyID: configuration.s3KMSKeyID, RequireDigestMetadata: true}
-	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment})
+	vaultReader, err := vaultkeys.NewClientReader(vaultkeys.ClientConfig{Address: configuration.vaultAddress, Namespace: configuration.vaultNamespace, Mount: configuration.vaultMount, TokenFile: configuration.vaultTokenFile, CACertificateFile: configuration.vaultCAFile, ClientCertificateFile: configuration.vaultCertFile, ClientKeyFile: configuration.vaultKeyFile, TLSServerName: configuration.vaultTLSName, AllowInsecureDevelopment: configuration.allowInsecureDevelopment, AllowLocalCompose: localCompose})
 	if err != nil {
 		return errors.New("configure Vault")
+	}
+	payloadKeys, err := vaultkeys.ProviderForEnvironment(configuration.environment, localCompose, os.Getenv("LITES_LOCAL_PAYLOAD_KEY_SEED_FILE"), vaultReader, configuration.vaultKeyPrefix)
+	if err != nil {
+		return errors.New("configure payload keys")
 	}
 	dependencyCtx, dependencyCancel := context.WithTimeout(ctx, 5*time.Second)
 	dependencyErr := pool.Ping(dependencyCtx)
@@ -120,7 +125,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	if err != nil {
 		return errors.New("configure observability")
 	}
-	payloads := payload.EnvelopeStore{Keys: vaultkeys.Provider{KV: vaultReader, Prefix: configuration.vaultKeyPrefix}, Blobs: blobs}
+	payloads := payload.EnvelopeStore{Keys: payloadKeys, Blobs: blobs}
 	appender := eventpostgres.Appender{Observer: telemetry.AgentMetrics()}
 	store := productpostgres.MissionFocusStore{Pool: pool, Appender: appender, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Epochs: authority, Now: func() time.Time { return time.Now().UTC() }}
 	catalog := productpostgres.ContentCatalog{Pool: pool, Release: contentRelease, IDKey: secrets.IDKey}
@@ -134,7 +139,10 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	submissions := productpostgres.SubmissionService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	reviews := productpostgres.ReviewService{Pool: pool, Runs: runStore, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, BehaviorEnvironment: configuration.routeBehaviorEnvironment, RunTimeout: configuration.evaluatorRunTimeout, RunMaxSteps: configuration.evaluatorRunMaxSteps, RunMaxCostMicrounits: int64(configuration.evaluatorRunMaxCostMicrounits), RunMaxAttempts: configuration.evaluatorRunMaxAttempts, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	evidence := productpostgres.EvidenceService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, CursorKey: secrets.CursorKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	capabilityClaims := productpostgres.CapabilityClaimService{Pool: pool, Appender: appender, Payloads: payloads, Catalog: catalog, IDKey: secrets.IDKey, CursorKey: secrets.CursorKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	preferences := productpostgres.PreferencesService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	byokCredentials := productpostgres.BYOKService{Pool: pool, Appender: appender, Payloads: payloads, Vault: vaultReader, SecretPrefix: configuration.vaultBYOKPrefix, IDKey: secrets.IDKey, CursorKey: secrets.CursorKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	memoryPolicies := productpostgres.MemoryPolicyService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	reminders := productpostgres.ReminderService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	projectStore := productpostgres.ProjectStore{Pool: pool, Appender: appender, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Epochs: authority, Now: func() time.Time { return time.Now().UTC() }}
 	projects := productpostgres.ProjectApplicationService{Pool: pool, Store: projectStore, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, CursorKey: secrets.CursorKey, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
@@ -144,6 +152,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	portfolioStore := productpostgres.PortfolioExportStore{Pool: pool, Appender: appender, IDKey: secrets.IDKey, StoreEpoch: storeEpoch, Epochs: authority, Behavior: behaviorStore, Now: func() time.Time { return time.Now().UTC() }}
 	portfolioExports := productpostgres.PortfolioExportService{Pool: pool, Store: portfolioStore, Payloads: payloads, Objects: artifactObjects, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, BehaviorEnvironment: configuration.routeBehaviorEnvironment, RunTimeout: configuration.artifactBuilderRunTimeout, RunMaxSteps: configuration.artifactBuilderRunMaxSteps, RunMaxCostMicrounits: int64(configuration.artifactBuilderRunMaxCostMicrounits), RunMaxAttempts: configuration.artifactBuilderRunMaxAttempts, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	shareGrants := productpostgres.ShareGrantService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
+	aggregateSnapshots := productpostgres.AggregateSnapshotService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	aggregateQueries := productpostgres.AggregateQueryService{Pool: pool, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	enterpriseAdmin := productpostgres.EnterpriseAdminService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
 	supportCases := productpostgres.SupportService{Pool: pool, Appender: appender, Payloads: payloads, IDKey: secrets.IDKey, CursorKey: secrets.CursorKey, IdempotencyKeyPepper: secrets.IdempotencyPepper, RequestDigestPepper: secrets.RequestDigestPepper, StoreEpoch: storeEpoch, IdempotencyTTL: configuration.idempotencyTTL, Now: func() time.Time { return time.Now().UTC() }}
@@ -154,12 +163,15 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	submissionHandler := productapi.SubmissionHandler{Service: submissions}
 	reviewHandler := productapi.ReviewHandler{Service: reviews}
 	evidenceHandler := productapi.EvidenceHandler{Service: evidence}
+	capabilityClaimHandler := productapi.CapabilityClaimHandler{Service: capabilityClaims}
 	preferencesHandler := productapi.PreferencesHandler{Service: preferences}
+	settingsHandler := productapi.SettingsHandler{BYOK: byokCredentials, Memory: memoryPolicies}
 	reminderHandler := productapi.ReminderHandler{Service: reminders}
 	projectHandler := productapi.ProjectHandler{Service: projects, Tests: projectTests}
 	artifactHandler := productapi.ArtifactHandler{Service: artifacts}
 	portfolioHandler := productapi.PortfolioHandler{Service: portfolioExports, Downloads: portfolioExports}
 	shareGrantHandler := productapi.ShareGrantHandler{Service: shareGrants}
+	aggregateSnapshotHandler := productapi.AggregateSnapshotHandler{Service: aggregateSnapshots}
 	aggregateQueryHandler := productapi.AggregateQueryHandler{Service: aggregateQueries}
 	enterpriseAdminHandler := productapi.EnterpriseAdminHandler{Service: enterpriseAdmin}
 	supportHandler := productapi.SupportHandler{Service: supportCases}
@@ -177,7 +189,12 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	productMux.Handle("/v1/reviews", reviewHandler)
 	productMux.Handle("/v1/reviews/", reviewHandler)
 	productMux.Handle("/v1/capability-evidence", evidenceHandler)
+	productMux.Handle("/v1/capability-claims", capabilityClaimHandler)
+	productMux.Handle("/v1/capability-claims/", capabilityClaimHandler)
 	productMux.Handle("/v1/preferences", preferencesHandler)
+	productMux.Handle("/v1/byok-credentials", settingsHandler)
+	productMux.Handle("/v1/byok-credentials/", settingsHandler)
+	productMux.Handle("/v1/memory-policy", settingsHandler)
 	productMux.Handle("/v1/reminder-schedules", reminderHandler)
 	productMux.Handle("/v1/reminder-schedules/", reminderHandler)
 	productMux.Handle("/v1/projects", projectHandler)
@@ -188,6 +205,7 @@ func run(parent context.Context, configuration config, logger *slog.Logger) erro
 	productMux.Handle("/v1/portfolio-exports/", portfolioHandler)
 	productMux.Handle("/v1/share-grants", shareGrantHandler)
 	productMux.Handle("/v1/share-grants/", shareGrantHandler)
+	productMux.Handle("/v1/admin/aggregate-snapshots", aggregateSnapshotHandler)
 	productMux.Handle("/v1/admin/aggregate-queries", aggregateQueryHandler)
 	productMux.Handle("/v1/admin/programs", enterpriseAdminHandler)
 	productMux.Handle("/v1/admin/programs/", enterpriseAdminHandler)

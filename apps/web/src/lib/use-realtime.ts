@@ -15,12 +15,12 @@ export function useRealtime(enabled = true) {
       if (stopped || !navigator.onLine) return;
       setState((current) => current === "idle" ? "connecting" : "retrying");
       const cursor = sessionStorage.getItem("lites:last-seen-seq");
-      source = new EventSource(`/api/v1/realtime${cursor ? `?last_seen_seq=${encodeURIComponent(cursor)}` : ""}`, { withCredentials: true });
+      source = new EventSource(`/api/v1/realtime${cursor ? `?after_seq=${encodeURIComponent(cursor)}` : ""}`, { withCredentials: true });
       source.onopen = () => setState("live");
-      source.onmessage = (event) => {
+      source.addEventListener("event", (event) => {
         if (event.lastEventId) sessionStorage.setItem("lites:last-seen-seq", event.lastEventId);
         window.dispatchEvent(new CustomEvent("lites:event", { detail: event.data }));
-      };
+      });
       source.onerror = () => {
         source?.close();
         setState("retrying");

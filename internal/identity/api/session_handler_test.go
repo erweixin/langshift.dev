@@ -26,6 +26,7 @@ type sessionServiceStub struct {
 	reauthenticate func(context.Context, ReauthenticateCommand) (ReauthenticationResult, error)
 	logout         func(context.Context, LogoutCommand) (LogoutResult, error)
 	list           func(context.Context, SessionsQuery) (SessionsPage, error)
+	switchTenant   func(context.Context, SwitchTenantCommand) (SessionMutationResult, error)
 	revoke         func(context.Context, RevokeSessionCommand) (SessionMutationResult, error)
 	revokeOthers   func(context.Context, RevokeOtherSessionsCommand) (SessionMutationResult, error)
 }
@@ -49,6 +50,12 @@ func (stub sessionServiceStub) ListSessions(ctx context.Context, query SessionsQ
 	}
 	return stub.list(ctx, query)
 }
+func (stub sessionServiceStub) SwitchTenant(ctx context.Context, command SwitchTenantCommand) (SessionMutationResult, error) {
+	if stub.switchTenant == nil {
+		return SessionMutationResult{}, errors.New("unexpected switch tenant")
+	}
+	return stub.switchTenant(ctx, command)
+}
 func (stub sessionServiceStub) RevokeSession(ctx context.Context, command RevokeSessionCommand) (SessionMutationResult, error) {
 	if stub.revoke == nil {
 		return SessionMutationResult{}, errors.New("unexpected revoke session")
@@ -70,7 +77,7 @@ func TestReauthenticationUsesTrustedSessionAndNeverReturnsPassword(t *testing.T)
 		return ReauthenticationResult{SessionID: command.SessionID, SessionVersion: 4, ReauthenticatedAt: apiTestNow, ValidUntil: apiTestNow.Add(5 * time.Minute)}, nil
 	}}
 	recorder := serveAuthenticated(t, service, http.MethodPost, "/v1/auth/reauthentication", "reauth-key-00000001", "", `{"request_id":"client-reauth-001","password":"current password value"}`)
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"session_version":4`) || strings.Contains(recorder.Body.String(), "current password value") || recorder.Header().Get("Cache-Control") != "no-store" {
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"session_version":4`) || strings.Contains(recorder.Body.String(), "current password value") || recorder.Header().Get("Cache-Control") != "private, no-store" {
 		t.Fatalf("status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
 	}
 }
@@ -96,6 +103,24 @@ func TestAuthenticatedSessionListUsesTrustedPrincipalAndOpaqueCursor(t *testing.
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || len(response.Items) != 1 || !response.Items[0].Current || response.NextCursor == nil || *response.NextCursor != next {
 		t.Fatalf("response=%#v err=%v", response, err)
+	}
+}
+
+func TestSwitchActiveTenantRequiresCASAndUsesTrustedSession(t *testing.T) {
+	service := sessionServiceStub{switchTenant: func(_ context.Context, command SwitchTenantCommand) (SessionMutationResult, error) {
+		if command.UserID != "user-auth" || command.TenantID != "tenant-auth" || command.SessionID != "session-auth" || command.ActiveTenantID != "tenant-target" || command.ExpectedSessionVersion != 3 || command.ClientRequestID != "switch-tenant-request-001" || command.IdempotencyKey != "switch-tenant-key-0001" {
+			t.Fatalf("command=%#v", command)
+		}
+		return SessionMutationResult{ID: command.SessionID, Version: 4, Status: "active_tenant_changed", UpdatedAt: apiTestNow}, nil
+	}}
+	recorder := serveAuthenticated(t, service, http.MethodPut, "/v1/auth/session/active-tenant", "switch-tenant-key-0001", `"3"`, `{"request_id":"switch-tenant-request-001","active_tenant_id":"tenant-target","expected_session_version":3}`)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("ETag") != `"4"` || !strings.Contains(recorder.Body.String(), `"status":"active_tenant_changed"`) {
+		t.Fatalf("status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+
+	recorder = serveAuthenticated(t, service, http.MethodPut, "/v1/auth/session/active-tenant", "switch-tenant-key-0002", `"2"`, `{"request_id":"switch-tenant-request-002","active_tenant_id":"tenant-target","expected_session_version":3}`)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("mismatched CAS status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

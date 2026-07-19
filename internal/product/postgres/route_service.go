@@ -51,14 +51,28 @@ type RouteService struct {
 }
 
 type routeInputManifest struct {
-	SchemaVersion          int                     `json:"schema_version"`
-	Mission                routeMissionSnapshot    `json:"mission"`
-	ClaimRevisions         []routeClaimRevision    `json:"claim_revisions"`
-	EvidenceRevisions      []routeEvidenceRevision `json:"evidence_revisions"`
-	AgentProfile           routeBehaviorBinding    `json:"agent_profile"`
-	AgentProfileSnapshotID string                  `json:"agent_profile_snapshot_id"`
-	OntologySnapshotID     string                  `json:"ontology_snapshot_id"`
-	ContentSnapshotID      string                  `json:"content_snapshot_id"`
+	SchemaVersion          int                      `json:"schema_version"`
+	Mission                routeMissionSnapshot     `json:"mission"`
+	Onboarding             *routeOnboardingSnapshot `json:"onboarding,omitempty"`
+	ClaimRevisions         []routeClaimRevision     `json:"claim_revisions"`
+	EvidenceRevisions      []routeEvidenceRevision  `json:"evidence_revisions"`
+	TargetRequirements     []routeTargetRequirement `json:"target_requirements"`
+	AgentProfile           routeBehaviorBinding     `json:"agent_profile"`
+	AgentProfileSnapshotID string                   `json:"agent_profile_snapshot_id"`
+	OntologySnapshotID     string                   `json:"ontology_snapshot_id"`
+	ContentSnapshotID      string                   `json:"content_snapshot_id"`
+}
+
+// routeOnboardingSnapshot binds the planner to the exact encrypted intake
+// revision without copying sensitive free text into PostgreSQL. The planner
+// resolves this immutable manifest only while constructing its encrypted run
+// message.
+type routeOnboardingSnapshot struct {
+	SessionID         string           `json:"session_id"`
+	Version           uint64           `json:"version"`
+	CurrentRoleInput  json.RawMessage  `json:"current_role_input"`
+	TargetRoleInput   json.RawMessage  `json:"target_role_input"`
+	ExperiencePayload payload.Manifest `json:"experience_payload"`
 }
 
 // routeBehaviorBinding freezes the exact append-only deployment selected at
@@ -93,7 +107,18 @@ type routeClaimRevision struct {
 	Origin            string    `json:"origin"`
 	VerificationLevel string    `json:"verification_level"`
 	StatementRef      string    `json:"statement_ref"`
+	EvidenceIDs       []string  `json:"evidence_ids"`
 	RecordedAt        time.Time `json:"recorded_at"`
+}
+
+type routeTargetRequirement struct {
+	ID               string `json:"id"`
+	RowVersion       uint64 `json:"row_version"`
+	RoleProfileID    string `json:"role_profile_id"`
+	CapabilityID     string `json:"capability_id"`
+	RequirementLevel string `json:"requirement_level"`
+	Rationale        string `json:"rationale"`
+	Revision         int    `json:"revision"`
 }
 
 type routeEvidenceRevision struct {
@@ -357,13 +382,24 @@ func (service RouteService) List(ctx context.Context, query productapi.RouteList
 }
 
 func (service RouteService) resolveInputManifest(ctx context.Context, tx pgx.Tx, command productapi.GenerateRouteCommand) (routeInputManifest, error) {
-	manifest := routeInputManifest{SchemaVersion: 2, ClaimRevisions: []routeClaimRevision{}, EvidenceRevisions: []routeEvidenceRevision{}, OntologySnapshotID: service.OntologySnapshotID, ContentSnapshotID: service.ContentSnapshotID}
+	manifest := routeInputManifest{SchemaVersion: 4, ClaimRevisions: []routeClaimRevision{}, EvidenceRevisions: []routeEvidenceRevision{}, TargetRequirements: []routeTargetRequirement{}, OntologySnapshotID: service.OntologySnapshotID, ContentSnapshotID: service.ContentSnapshotID}
 	err := tx.QueryRow(ctx, `SELECT id::text,version,route_version,claim_set_hash,source_role_profile_id::text,target_role_profile_id::text FROM product.missions WHERE tenant_id=$1 AND user_id=$2 AND id=$3`, command.TenantID, command.UserID, command.MissionID).Scan(&manifest.Mission.ID, &manifest.Mission.Version, &manifest.Mission.RouteVersion, &manifest.Mission.ClaimSetHash, &manifest.Mission.SourceRoleProfileID, &manifest.Mission.TargetRoleProfileID)
 	if err != nil {
 		return routeInputManifest{}, err
 	}
 	if manifest.Mission.RouteVersion != command.ExpectedRouteVersion || manifest.Mission.ClaimSetHash != command.ExpectedClaimSetHash {
 		return routeInputManifest{}, ErrRouteConflict
+	}
+	var onboarding routeOnboardingSnapshot
+	var encodedExperienceManifest *string
+	err = tx.QueryRow(ctx, `SELECT id::text,version,current_role_input,target_role_input,experience_payload_ref FROM identity.onboarding_sessions WHERE tenant_id=$1 AND user_id=$2 AND mission_id=$3 ORDER BY created_at DESC,id DESC LIMIT 1`, command.TenantID, command.UserID, command.MissionID).Scan(&onboarding.SessionID, &onboarding.Version, &onboarding.CurrentRoleInput, &onboarding.TargetRoleInput, &encodedExperienceManifest)
+	if err == nil {
+		if encodedExperienceManifest == nil || json.Unmarshal([]byte(*encodedExperienceManifest), &onboarding.ExperiencePayload) != nil || onboarding.ExperiencePayload.Ref == "" || onboarding.ExperiencePayload.Hash == "" || !validJSONObject(onboarding.CurrentRoleInput) || !validJSONObject(onboarding.TargetRoleInput) {
+			return routeInputManifest{}, payload.ErrIntegrity
+		}
+		manifest.Onboarding = &onboarding
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return routeInputManifest{}, err
 	}
 	manifest.AgentProfile.Profile = service.BehaviorProfile
 	manifest.AgentProfile.Environment = service.BehaviorEnvironment
@@ -372,13 +408,13 @@ func (service RouteService) resolveInputManifest(ctx context.Context, tx pgx.Tx,
 		return routeInputManifest{}, err
 	}
 	manifest.AgentProfileSnapshotID = manifest.AgentProfile.SnapshotID
-	claimRows, err := tx.Query(ctx, `SELECT DISTINCT ON (claim_identity_id) id::text,claim_identity_id::text,claim_revision,version,capability_id::text,status,origin,verification_level,statement_ref,recorded_at FROM product.capability_claims WHERE tenant_id=$1 AND user_id=$2 AND mission_id=$3 ORDER BY claim_identity_id,claim_revision DESC,id DESC`, command.TenantID, command.UserID, command.MissionID)
+	claimRows, err := tx.Query(ctx, `SELECT DISTINCT ON (claim_identity_id) id::text,claim_identity_id::text,claim_revision,version,capability_id::text,status,origin,verification_level,statement_ref,ARRAY(SELECT link.evidence_id::text FROM product.claim_evidence_links link WHERE link.tenant_id=$1 AND link.claim_id=product.capability_claims.id AND link.relation='supports' ORDER BY link.evidence_id),recorded_at FROM product.capability_claims WHERE tenant_id=$1 AND user_id=$2 AND mission_id=$3 ORDER BY claim_identity_id,claim_revision DESC,id DESC`, command.TenantID, command.UserID, command.MissionID)
 	if err != nil {
 		return routeInputManifest{}, err
 	}
 	for claimRows.Next() {
 		var claim routeClaimRevision
-		if err = claimRows.Scan(&claim.ID, &claim.IdentityID, &claim.Revision, &claim.RowVersion, &claim.CapabilityID, &claim.Status, &claim.Origin, &claim.VerificationLevel, &claim.StatementRef, &claim.RecordedAt); err != nil {
+		if err = claimRows.Scan(&claim.ID, &claim.IdentityID, &claim.Revision, &claim.RowVersion, &claim.CapabilityID, &claim.Status, &claim.Origin, &claim.VerificationLevel, &claim.StatementRef, &claim.EvidenceIDs, &claim.RecordedAt); err != nil {
 			claimRows.Close()
 			return routeInputManifest{}, err
 		}
@@ -386,6 +422,23 @@ func (service RouteService) resolveInputManifest(ctx context.Context, tx pgx.Tx,
 	}
 	err = claimRows.Err()
 	claimRows.Close()
+	if err != nil {
+		return routeInputManifest{}, err
+	}
+	requirementRows, err := tx.Query(ctx, `SELECT id::text,version,role_profile_id::text,capability_id::text,requirement_level,rationale,revision FROM product.role_capability_requirements WHERE tenant_id=$1 AND role_profile_id=$2 ORDER BY capability_id,revision,id`, command.TenantID, manifest.Mission.TargetRoleProfileID)
+	if err != nil {
+		return routeInputManifest{}, err
+	}
+	for requirementRows.Next() {
+		var requirement routeTargetRequirement
+		if err = requirementRows.Scan(&requirement.ID, &requirement.RowVersion, &requirement.RoleProfileID, &requirement.CapabilityID, &requirement.RequirementLevel, &requirement.Rationale, &requirement.Revision); err != nil {
+			requirementRows.Close()
+			return routeInputManifest{}, err
+		}
+		manifest.TargetRequirements = append(manifest.TargetRequirements, requirement)
+	}
+	err = requirementRows.Err()
+	requirementRows.Close()
 	if err != nil {
 		return routeInputManifest{}, err
 	}

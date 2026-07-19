@@ -47,9 +47,13 @@ type TrustBoundary struct {
 	AnonymousCSRFKey   []byte
 	FingerprintPepper  []byte
 	PublicOrigins      []string
-	RoutePolicy        func(*http.Request) AuthenticationPolicy
-	Random             io.Reader
-	Now                func() time.Time
+	// AllowInsecureLoopbackOrigins is restricted by the executable config to
+	// engineering-test. It exists only so a macOS HTTP loopback UI can exercise
+	// unsafe browser requests without weakening production HTTPS origin checks.
+	AllowInsecureLoopbackOrigins bool
+	RoutePolicy                  func(*http.Request) AuthenticationPolicy
+	Random                       io.Reader
+	Now                          func() time.Time
 }
 
 type AuthenticationPolicy uint8
@@ -255,7 +259,8 @@ func keyedFingerprint(value string, pepper []byte) string {
 func (boundary TrustBoundary) validPublicOrigin(request *http.Request) bool {
 	origin := request.Header.Get("Origin")
 	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+	loopbackHTTP := err == nil && boundary.AllowInsecureLoopbackOrigins && parsed.Scheme == "http" && isLoopbackHost(parsed.Hostname())
+	if err != nil || parsed.Scheme != "https" && !loopbackHTTP || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return false
 	}
 	if fetchSite := request.Header.Get("Sec-Fetch-Site"); fetchSite != "" && fetchSite != "same-origin" && fetchSite != "same-site" {
@@ -268,6 +273,14 @@ func (boundary TrustBoundary) validPublicOrigin(request *http.Request) bool {
 		}
 	}
 	return false
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (boundary TrustBoundary) unauthorized(writer http.ResponseWriter, request *http.Request) {

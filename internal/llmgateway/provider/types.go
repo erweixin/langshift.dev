@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -77,14 +78,84 @@ type Message struct {
 }
 
 type ContentBlock struct {
-	Type       string
-	Text       string
-	MediaType  string
-	DataBase64 string
-	ToolUseID  string
-	ToolName   string
-	ToolInput  json.RawMessage
-	IsError    bool
+	Type       string          `json:"type"`
+	Text       string          `json:"text,omitempty"`
+	MediaType  string          `json:"media_type,omitempty"`
+	DataBase64 string          `json:"data_base64,omitempty"`
+	ToolUseID  string          `json:"tool_use_id,omitempty"`
+	ToolName   string          `json:"tool_name,omitempty"`
+	ToolInput  json.RawMessage `json:"tool_input,omitempty"`
+	IsError    bool            `json:"is_error,omitempty"`
+}
+
+// UnmarshalJSON keeps run-message envelopes written before the canonical
+// snake_case encoding readable. New writes use the field tags above; reads
+// accept exactly one of each canonical or legacy Go-field spelling and reject
+// unknown or ambiguous fields instead of weakening the closed message schema.
+func (block *ContentBlock) UnmarshalJSON(encoded []byte) error {
+	if block == nil {
+		return errors.New("content block destination is nil")
+	}
+	var fields map[string]json.RawMessage
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	if err := decoder.Decode(&fields); err != nil || fields == nil {
+		return errors.New("content block is invalid")
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("content block is invalid")
+	}
+	allowed := map[string]bool{
+		"type": true, "text": true, "media_type": true, "data_base64": true,
+		"tool_use_id": true, "tool_name": true, "tool_input": true, "is_error": true,
+		"Type": true, "Text": true, "MediaType": true, "DataBase64": true,
+		"ToolUseID": true, "ToolName": true, "ToolInput": true, "IsError": true,
+	}
+	for name := range fields {
+		if !allowed[name] {
+			return errors.New("content block contains an unknown field")
+		}
+	}
+	read := func(canonical, legacy string, target any) error {
+		canonicalValue, hasCanonical := fields[canonical]
+		legacyValue, hasLegacy := fields[legacy]
+		if hasCanonical && hasLegacy {
+			return errors.New("content block contains duplicate field spellings")
+		}
+		if !hasCanonical && !hasLegacy {
+			return nil
+		}
+		if hasLegacy {
+			canonicalValue = legacyValue
+		}
+		return json.Unmarshal(canonicalValue, target)
+	}
+	var decoded ContentBlock
+	if err := read("type", "Type", &decoded.Type); err != nil {
+		return err
+	}
+	if err := read("text", "Text", &decoded.Text); err != nil {
+		return err
+	}
+	if err := read("media_type", "MediaType", &decoded.MediaType); err != nil {
+		return err
+	}
+	if err := read("data_base64", "DataBase64", &decoded.DataBase64); err != nil {
+		return err
+	}
+	if err := read("tool_use_id", "ToolUseID", &decoded.ToolUseID); err != nil {
+		return err
+	}
+	if err := read("tool_name", "ToolName", &decoded.ToolName); err != nil {
+		return err
+	}
+	if err := read("tool_input", "ToolInput", &decoded.ToolInput); err != nil {
+		return err
+	}
+	if err := read("is_error", "IsError", &decoded.IsError); err != nil {
+		return err
+	}
+	*block = decoded
+	return nil
 }
 
 type Tool struct {

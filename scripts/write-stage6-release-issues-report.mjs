@@ -3,14 +3,14 @@ import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { githubIssueQuery } from "./collect-stage6-release-issues.mjs";
+import { githubIssueRequestContract } from "./collect-stage6-release-issues.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const hex40 = /^[0-9a-f]{40}$/;
 const hex64 = /^[0-9a-f]{64}$/;
 
 export function buildReleaseIssuesReport(snapshot, policy, { snapshotPath, snapshotSha256, generatedAt, worktreeDirty = false }) {
-  if (policy?.policyVersion !== "1.0.0" || policy.provider !== "github-graphql" || policy.pullRequestsExcluded !== true || !Number.isInteger(policy.maximumSnapshotAgeHours) || policy.maximumSnapshotAgeHours < 1 || policy.repository !== snapshot?.repository || snapshot.schemaVersion !== "1.0.0" || snapshot.provider !== policy.provider || !hex40.test(snapshot.sourceCommit ?? "") || !hex64.test(snapshot.rcHash ?? "") || snapshot.querySha256 !== sha256(githubIssueQuery) || snapshot.paginationComplete !== true || !Number.isInteger(snapshot.pageCount) || snapshot.pageCount < 1 || !Array.isArray(snapshot.issues) || snapshot.totalCount !== snapshot.issues.length || !hex64.test(snapshotSha256 ?? "") || !Number.isFinite(Date.parse(generatedAt)) || !Number.isFinite(Date.parse(snapshot.capturedAt))) throw new Error("release issue snapshot or policy is invalid");
+  if (policy?.policyVersion !== "1.0.0" || policy.provider !== "github-rest" || policy.pullRequestsExcluded !== true || !Number.isInteger(policy.maximumSnapshotAgeHours) || policy.maximumSnapshotAgeHours < 1 || policy.repository !== snapshot?.repository || snapshot.schemaVersion !== "1.0.0" || snapshot.provider !== policy.provider || !hex40.test(snapshot.sourceCommit ?? "") || !hex64.test(snapshot.rcHash ?? "") || snapshot.querySha256 !== sha256(githubIssueRequestContract) || snapshot.paginationComplete !== true || !Number.isInteger(snapshot.pageCount) || snapshot.pageCount < 1 || !Array.isArray(snapshot.issues) || snapshot.totalCount !== snapshot.issues.length || !hex64.test(snapshotSha256 ?? "") || !Number.isFinite(Date.parse(generatedAt)) || !Number.isFinite(Date.parse(snapshot.capturedAt))) throw new Error("release issue snapshot or policy is invalid");
   const ageMs = Date.parse(generatedAt) - Date.parse(snapshot.capturedAt);
   if (ageMs < 0 || ageMs > policy.maximumSnapshotAgeHours * 60 * 60 * 1000) throw new Error("release issue snapshot is stale or from the future");
   if (new Set(snapshot.issues.map((issue) => issue.nodeId)).size !== snapshot.issues.length || new Set(snapshot.issues.map((issue) => issue.number)).size !== snapshot.issues.length) throw new Error("release issue inventory contains duplicates");

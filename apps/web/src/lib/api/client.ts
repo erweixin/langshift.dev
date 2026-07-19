@@ -1,8 +1,8 @@
 import type { paths } from "./schema";
 
-export type MissionsResponse = paths["/v1/missions"]["get"]["responses"][200]["content"]["application/json"];
-export type DailyTasksResponse = paths["/v1/daily-tasks"]["get"]["responses"][200]["content"]["application/json"];
-export type PreferencesResponse = paths["/v1/preferences"]["get"]["responses"][200]["content"]["application/json"];
+export type MissionsResponse = paths["/v1/missions"]["get"]["responses"][200]["content"]["application/vnd.lites.missions.v2+json"];
+export type DailyTasksResponse = paths["/v1/daily-tasks"]["get"]["responses"][200]["content"]["application/vnd.lites.daily-tasks.v2+json"];
+export type PreferencesResponse = paths["/v1/preferences"]["get"]["responses"][200]["content"]["application/vnd.lites.preferences.v2+json"];
 
 export class ApiError extends Error {
   constructor(

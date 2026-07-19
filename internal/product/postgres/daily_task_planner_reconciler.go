@@ -42,6 +42,12 @@ type terminalDailyPlannerRun struct {
 	InputManifest                                                                     json.RawMessage
 }
 
+type replacedDailyTask struct {
+	ID      string
+	Status  string
+	Version uint64
+}
+
 func (reconciler DailyTaskPlannerReconciler) ListTenantIDs(ctx context.Context, afterTenantID string, limit int) ([]string, error) {
 	if !reconciler.valid() || limit < 1 || limit > 5000 {
 		return nil, ErrDailyTaskCommand
@@ -148,6 +154,9 @@ func (reconciler DailyTaskPlannerReconciler) reconcileOne(ctx context.Context, t
 		}
 		return "superseded", false, tx.Commit(ctx)
 	}
+	if err = reconciler.skipReplacedDailyTask(ctx, tx, tenantID, item, now); err != nil {
+		return "", false, err
+	}
 	manifestHash := sha256.Sum256(item.InputManifest)
 	_, err = tx.Exec(ctx, `INSERT INTO product.daily_tasks(id,tenant_id,user_id,version,mission_id,route_revision_id,status,practice_kind,task_payload_ref,causal_manifest,estimated_minutes,scheduled_for,completed_at,generation_id,task_payload_hash,causal_manifest_hash,focus_version,difficulty,current_submission_id,current_review_id,rescheduled_to,created_at,updated_at) VALUES($1,$2,$3,1,$4,$5,'scheduled',$6,$7,$8,$9,$10,NULL,$11,$12,$13,$14,$15,NULL,NULL,NULL,$16,$16)`, taskID, tenantID, item.UserID, item.MissionID, item.RouteRevisionID, document.PracticeKind, taskPayload.Ref, item.InputManifest, document.EstimatedMinutes, item.ScheduledFor, item.GenerationID, taskPayload.Hash, hex.EncodeToString(manifestHash[:]), item.FocusVersion, document.Difficulty, now)
 	if err != nil {
@@ -162,6 +171,37 @@ func (reconciler DailyTaskPlannerReconciler) reconcileOne(ctx context.Context, t
 		return "", false, err
 	}
 	return "scheduled", false, tx.Commit(ctx)
+}
+
+func (reconciler DailyTaskPlannerReconciler) skipReplacedDailyTask(ctx context.Context, tx pgx.Tx, tenantID string, item terminalDailyPlannerRun, now time.Time) error {
+	var previous replacedDailyTask
+	err := tx.QueryRow(ctx, `SELECT id::text,version,status FROM product.daily_tasks WHERE tenant_id=$1 AND user_id=$2 AND scheduled_for=$3 AND route_revision_id<>$4 AND status IN ('scheduled','in_progress') FOR UPDATE`, tenantID, item.UserID, item.ScheduledFor, item.RouteRevisionID).Scan(&previous.ID, &previous.Version, &previous.Status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	nextVersion := previous.Version + 1
+	tag, err := tx.Exec(ctx, `UPDATE product.daily_tasks SET version=$1,status='skipped',updated_at=$2 WHERE tenant_id=$3 AND user_id=$4 AND id=$5 AND version=$6 AND status=$7`, nextVersion, now, tenantID, item.UserID, previous.ID, previous.Version, previous.Status)
+	if err != nil || tag.RowsAffected() != 1 {
+		return ErrRouteConflict
+	}
+	seed := item.RunID + "\x00" + previous.ID
+	values := make([]string, 3)
+	for index, domain := range []string{"daily-task-route-replaced-event", "daily-task-route-replaced-outbox", "daily-task-route-replaced-publish"} {
+		values[index], err = ids.DeterministicUUID(reconciler.IDKey, domain, seed)
+		if err != nil {
+			return err
+		}
+	}
+	eventPayload, err := reconciler.putEvent(ctx, tenantID, values[0], map[string]any{"subject_id": previous.ID, "subject_version": nextVersion, "action": "skip", "reschedule_for": nil})
+	if err != nil {
+		return err
+	}
+	causationID := item.RunID
+	_, err = reconciler.Routes.Appender.Append(ctx, tx, eventpostgres.Input{Event: eventpostgres.Event{ID: values[0], TenantID: tenantID, UserID: item.UserID, EventType: "DailyTaskUpdated", SchemaVersion: 1, AggregateKind: "daily_task", AggregateID: previous.ID, AggregateVersion: nextVersion, StoreEpoch: reconciler.Routes.StoreEpoch, OccurredAt: now, Actor: reconciler.actor(), CausationID: &causationID, CorrelationID: item.CorrelationID, PayloadRef: eventPayload.Ref, PayloadHash: eventPayload.Hash}, Commands: []eventpostgres.OutboxCommand{{ID: values[1], CommandID: values[2], CommandType: "events.publish", PayloadRef: eventPayload.Ref, PayloadHash: eventPayload.Hash}}})
+	return err
 }
 
 func (reconciler DailyTaskPlannerReconciler) finishFailure(ctx context.Context, tenantID string, item terminalDailyPlannerRun, reason string) (string, bool, error) {

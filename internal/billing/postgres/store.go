@@ -80,6 +80,20 @@ func (store Store) identifiers(scope, reservationID string, version uint64) (eve
 	return eventIDs{values[0], values[1], values[2], values[3]}, nil
 }
 
+// TerminalIdentifiers exposes the deterministic terminal event and ledger IDs
+// so an application service can create the immutable event payload before the
+// accounting transaction commits.
+func (store Store) TerminalIdentifiers(scope, reservationID string) (eventID, ledgerEntryID string, err error) {
+	if scope != "settled" && scope != "released" || reservationID == "" || !store.Valid() {
+		return "", "", ErrInvalidCommand
+	}
+	identifiers, err := store.identifiers(scope, reservationID, 2)
+	if err != nil {
+		return "", "", err
+	}
+	return identifiers.event, identifiers.ledger, nil
+}
+
 func usageEvent(identifier eventIDs, event eventpostgres.Event, pointer PayloadPointer) eventpostgres.Input {
 	event.ID, event.PayloadRef, event.PayloadHash = identifier.event, pointer.Ref, pointer.Hash
 	return eventpostgres.Input{Event: event, Commands: []eventpostgres.OutboxCommand{{ID: identifier.outbox, CommandID: identifier.publish, CommandType: "events.publish", PayloadRef: pointer.Ref, PayloadHash: pointer.Hash}}}

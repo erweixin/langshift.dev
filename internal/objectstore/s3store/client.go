@@ -16,6 +16,9 @@ type ClientConfig struct {
 	Endpoint                 string
 	UsePathStyle             bool
 	AllowInsecureDevelopment bool
+	// AllowLocalCompose permits exactly the Docker Desktop MinIO service in an
+	// explicit engineering-test process. It must never be set by production.
+	AllowLocalCompose bool
 }
 
 func NewClient(ctx context.Context, configuration ClientConfig, options ...func(*awsconfig.LoadOptions) error) (*s3.Client, error) {
@@ -31,7 +34,7 @@ func NewClient(ctx context.Context, configuration ClientConfig, options ...func(
 			if endpoint.Scheme != "http" && endpoint.Scheme != "https" {
 				return nil, ErrConfiguration
 			}
-			if endpoint.Scheme == "http" && !isLoopback(endpoint.Hostname()) {
+			if endpoint.Scheme == "http" && !isLoopback(endpoint.Hostname()) && !(configuration.AllowLocalCompose && endpoint.Hostname() == "minio") {
 				return nil, ErrConfiguration
 			}
 		} else if endpoint.Scheme != "https" {

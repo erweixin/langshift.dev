@@ -26,9 +26,10 @@ import (
 var apiTestNow = time.Unix(1_800_000_000, 0).UTC()
 
 type serviceStub struct {
-	register    func(context.Context, RegisterCommand) (RegisterResult, error)
-	verifyEmail func(context.Context, VerifyEmailCommand) (VerifyEmailResult, error)
-	login       func(context.Context, LoginCommand) (LoginResult, error)
+	register           func(context.Context, RegisterCommand) (RegisterResult, error)
+	verifyEmail        func(context.Context, VerifyEmailCommand) (VerifyEmailResult, error)
+	resendVerification func(context.Context, ResendVerificationCommand) (ResendVerificationResult, error)
+	login              func(context.Context, LoginCommand) (LoginResult, error)
 }
 
 func (stub serviceStub) Register(ctx context.Context, command RegisterCommand) (RegisterResult, error) {
@@ -43,6 +44,13 @@ func (stub serviceStub) VerifyEmail(ctx context.Context, command VerifyEmailComm
 		return VerifyEmailResult{}, errors.New("unexpected verify email")
 	}
 	return stub.verifyEmail(ctx, command)
+}
+
+func (stub serviceStub) ResendVerification(ctx context.Context, command ResendVerificationCommand) (ResendVerificationResult, error) {
+	if stub.resendVerification == nil {
+		return ResendVerificationResult{}, errors.New("unexpected resend verification")
+	}
+	return stub.resendVerification(ctx, command)
 }
 
 func (stub serviceStub) Login(ctx context.Context, command LoginCommand) (LoginResult, error) {

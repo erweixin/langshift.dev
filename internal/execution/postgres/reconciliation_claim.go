@@ -139,7 +139,7 @@ func (store RunStore) claimReconciliation(ctx context.Context, command ClaimReco
 			return ReconciliationClaim{}, err
 		}
 	}
-	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND available_at<=$1 AND (due_at IS NULL OR due_at>$1) RETURNING id::text`, now, command.Command.TenantID, command.Command.CommandID).Scan(&claim.JobID)
+	err = tx.QueryRow(ctx, `UPDATE agent.jobs SET status='running',dispatch_lease_hash=NULL,dispatch_lease_expires_at=NULL,updated_at=$1 WHERE tenant_id=$2 AND command_id=$3 AND status='pending' AND ($4 OR available_at<=$1) AND (due_at IS NULL OR due_at>$1) RETURNING id::text`, now, command.Command.TenantID, command.Command.CommandID, store.RequireDispatchFence).Scan(&claim.JobID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ReconciliationClaim{}, ErrReconciliationNotClaimable
 	}
